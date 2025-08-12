@@ -26,6 +26,7 @@ async function cartoQuery(sql: string) {
     if (!r.ok) throw new Error(await r.text())
     return r.json()
   }
+  // Fallback (avoid in production if possible)
   const url = `${SQL_BASE}/${CONN}/query`
   const r = await fetch(url, {
     method: 'POST',
@@ -91,32 +92,35 @@ SELECT * FROM metrics;`
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
-    // 1) OSM raster basemap via TileLayer -> BitmapLayer
+    // OSM raster basemap via TileLayer -> BitmapLayer
     const basemap = new TileLayer({
       id: 'basemap-osm',
       data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       minZoom: 0,
       maxZoom: 19,
       tileSize: 256,
+      // Guard carefully: only render when we have both the loaded image AND bbox + x/y/z
       renderSubLayers: (props: any) => {
-        // deck.gl passes the loaded image as props.data; bbox lives on props.tile
-        if (!props?.tile?.bbox || !props?.data) return null
-        const { west, south, east, north } = props.tile.bbox
+        const tile = props?.tile
+        const data = props?.data
+        const bbox = tile?.bbox || tile?.boundingBox
+        if (!tile || !data || !bbox) return null
+        if (typeof tile.x !== 'number' || typeof tile.y !== 'number' || typeof tile.z !== 'number') return null
+        const { west, south, east, north } = bbox
         return new BitmapLayer(props, {
-          id: `bmp-${props.tile.x}-${props.tile.y}-${props.tile.z}`,
-          image: props.data,            // ✅ use props.data (the loaded image)
+          id: `bmp-${tile.x}-${tile.y}-${tile.z}`,
+          image: data,
           bounds: [west, south, east, north]
         })
       }
     })
 
-    // 2) Editable polygon (use mode class from @nebula.gl/edit-modes)
     const draw = new EditableGeoJsonLayer({
       id: 'draw',
       data: poly
         ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: poly, properties: {} }] }
         : { type: 'FeatureCollection', features: [] },
-      mode: DrawPolygonMode,
+      mode: DrawPolygonMode, // use the class (prevents pointer errors)
       onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
@@ -145,6 +149,7 @@ SELECT * FROM metrics;`
         <div style={{ marginTop: 8 }}>
           {loading && <div>Computing…</div>}
           {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap' }}>Error: {errorMsg}</div>}
+
           {metrics && budget && (
             <>
               <div className="kpis">
@@ -159,9 +164,31 @@ SELECT * FROM metrics;`
               </div>
             </>
           )}
+
           {!poly && <div style={{ marginTop: 8 }}>Use the polygon tool to draw your proposed district.</div>}
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© OpenStreetMap contributors</div>
         </div>
+
+        <details>
+          <summary>Advanced (coefficients)</summary>
+          <div className="kpis" style={{ marginTop: 8 }}>
+            <label className="kpi">α per business<br />
+              <input type="number" value={coeffs.alpha} onChange={e => setCoeffs({ ...coeffs, alpha: Number(e.target.value) })} />
+            </label>
+            <label className="kpi">β per intersection<br />
+              <input type="number" value={coeffs.beta} onChange={e => setCoeffs({ ...coeffs, beta: Number(e.target.value) })} />
+            </label>
+            <label className="kpi">γ per km²<br />
+              <input type="number" value={coeffs.gamma} onChange={e => setCoeffs({ ...coeffs, gamma: Number(e.target.value) })} />
+            </label>
+            <label className="kpi">δ per 10k m²<br />
+              <input type="number" value={coeffs.delta} onChange={e => setCoeffs({ ...coeffs, delta: Number(e.target.value) })} />
+            </label>
+            <label className="kpi">Base<br />
+              <input type="number" value={coeffs.base} onChange={e => setCoeffs({ ...coeffs, base: Number(e.target.value) })} />
+            </label>
+          </div>
+        </details>
       </div>
     </div>
   )
