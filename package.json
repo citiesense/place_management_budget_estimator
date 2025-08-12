@@ -16,6 +16,8 @@
     "@deck.gl/react": "^8.9.36",
     "@deck.gl/geo-layers": "^8.9.36",
     "@nebula.gl/layers": "0.21.0",
+    "@turf/area": "^6.5.0",
+    "@turf/helpers": "^6.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
