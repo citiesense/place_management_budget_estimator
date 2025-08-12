@@ -5,9 +5,15 @@ import { BitmapLayer } from '@deck.gl/layers'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
 import { DrawPolygonMode } from '@nebula.gl/edit-modes'
 
-const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
+const INITIAL_VIEW_STATE = {
+  longitude: -73.9855,
+  latitude: 40.7484,
+  zoom: 12,
+  pitch: 0,
+  bearing: 0
+}
 
-// Env (proxy first; we will not use client CartoLayer to avoid exposing the key)
+// Env (proxy-first; direct is fallback only)
 const SQL_PROXY = import.meta.env.VITE_SQL_PROXY
 const SQL_BASE = import.meta.env.VITE_CARTO_SQL_BASE
 const CONN = import.meta.env.VITE_CARTO_CONN
@@ -16,31 +22,50 @@ const PLACES = import.meta.env.VITE_PLACES_TABLE
 const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
-async function cartoQuery(sql: string){
+async function cartoQuery(sql: string) {
   if (SQL_PROXY) {
-    const r = await fetch(SQL_PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: sql }) })
-    if(!r.ok) throw new Error(await r.text())
+    const r = await fetch(SQL_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: sql })
+    })
+    if (!r.ok) throw new Error(await r.text())
     return r.json()
   }
+  // Fallback (try not to rely on this in production)
   const url = `${SQL_BASE}/${CONN}/query`
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) }, body: JSON.stringify({ q: sql }) })
-  if(!r.ok) throw new Error(await r.text())
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {})
+    },
+    body: JSON.stringify({ q: sql })
+  })
+  if (!r.ok) throw new Error(await r.text())
   return r.json()
 }
 
-export default function Root(){
+export default function Root() {
   const [poly, setPoly] = useState<any>(null)
   const [metrics, setMetrics] = useState<any>(null)
-  const [coeffs, setCoeffs] = useState({ alpha:700, beta:1500, gamma:60000, delta:8000, base:80000 })
+  const [coeffs, setCoeffs] = useState({
+    alpha: 700,
+    beta: 1500,
+    gamma: 60000,
+    delta: 8000,
+    base: 80000
+  })
   const [budget, setBudget] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
-    if(!poly || !PLACES || !SEGS || !BLDGS) return
+    if (!poly || !PLACES || !SEGS || !BLDGS) return
     const run = async () => {
-      setLoading(true); setErrorMsg(null)
-      const gj = JSON.stringify({ type:'Feature', geometry: poly })
+      setLoading(true)
+      setErrorMsg(null)
+      const gj = JSON.stringify({ type: 'Feature', geometry: poly })
       const sql = `
 DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
 WITH metrics AS (
@@ -67,41 +92,56 @@ SELECT * FROM metrics;`
       const row = res?.rows?.[0] || {}
       setMetrics(row)
       const likely = Math.round(
-        coeffs.base
-        + coeffs.alpha * (row.businesses || 0)
-        + coeffs.beta * (row.intersections || 0)
-        + coeffs.gamma * (row.area_km2 || 0)
-        + coeffs.delta * (row.gfa_10k_m2 || 0)
+        coeffs.base +
+          coeffs.alpha * (row.businesses || 0) +
+          coeffs.beta * (row.intersections || 0) +
+          coeffs.gamma * (row.area_km2 || 0) +
+          coeffs.delta * (row.gfa_10k_m2 || 0)
       )
-      setBudget({ likely, low: Math.round(likely*0.8), high: Math.round(likely*1.2) })
+      setBudget({
+        likely,
+        low: Math.round(likely * 0.8),
+        high: Math.round(likely * 1.2)
+      })
       setLoading(false)
     }
-    run().catch(e => { console.error(e); setErrorMsg(String(e)); setLoading(false) })
+    run().catch(e => {
+      console.error(e)
+      setErrorMsg(String(e))
+      setLoading(false)
+    })
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
+    // 1) Basemap (guard against early render when tile hasn't loaded yet)
     const basemap = new TileLayer({
       id: 'basemap-osm',
       data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       minZoom: 0,
       maxZoom: 19,
       tileSize: 256,
-      renderSubLayers: (props) => {
-        const { west, south, east, north } = props.tile.bbox  // <-- fix
+      renderSubLayers: props => {
+        const t: any = (props as any).tile
+        if (!t || !t.data || !t.bbox) return null // <-- important guard
+        const { west, south, east, north } = t.bbox
         return new BitmapLayer(props, {
-          id: `bmp-${props.tile.x}-${props.tile.y}-${props.tile.z}`,
-          image: props.tile.data,
+          id: `bmp-${t.x}-${t.y}-${t.z}`,
+          image: t.data,
           bounds: [west, south, east, north]
         })
       }
     })
 
+    // 2) Editable polygon (use mode CLASS, not a string)
     const draw = new EditableGeoJsonLayer({
       id: 'draw',
       data: poly
-        ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
-        : { type:'FeatureCollection', features:[] },
-      mode: DrawPolygonMode,           // <-- use class, not string
+        ? {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', geometry: poly, properties: {} }]
+          }
+        : { type: 'FeatureCollection', features: [] },
+      mode: DrawPolygonMode,
       onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
@@ -110,43 +150,138 @@ SELECT * FROM metrics;`
       getFillColor: [243, 113, 41, 40]
     })
 
-    // Only basemap + draw for now (CartoLayer removed to keep key server-side)
+    // Keep it simple: basemap + draw (no client-side CartoLayer)
     return [basemap, draw]
   }, [poly])
 
   return (
-    <div style={{height:'100%'}}>
+    <div style={{ height: '100%' }}>
       <DeckGL
         initialViewState={INITIAL_VIEW_STATE}
         controller={true}
         layers={layers}
-        onError={(e) => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
+        onError={e => {
+          console.error('DeckGL error:', e)
+          setErrorMsg(String(e))
+        }}
       />
       <div className="panel">
-        <div className="row" style={{justifyContent:'space-between'}}>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
           <strong>Place Management Budget Estimator</strong>
           <button onClick={() => setPoly(null)}>Clear</button>
         </div>
-        <div style={{marginTop:8}}>
+
+        <div style={{ marginTop: 8 }}>
           {loading && <div>Computing…</div>}
-          {errorMsg && <div style={{color:'#b00'}}>Error: {errorMsg}</div>}
+          {errorMsg && (
+            <div style={{ color: '#b00', whiteSpace: 'pre-wrap' }}>Error: {errorMsg}</div>
+          )}
           {metrics && budget && (
             <>
               <div className="kpis">
-                <div className="kpi"><div>Businesses</div><strong>{metrics.businesses}</strong></div>
-                <div className="kpi"><div>Intersections</div><strong>{metrics.intersections}</strong></div>
-                <div className="kpi"><div>Area (km²)</div><strong>{Number(metrics.area_km2).toFixed(3)}</strong></div>
-                <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
+                <div className="kpi">
+                  <div>Businesses</div>
+                  <strong>{metrics.businesses}</strong>
+                </div>
+                <div className="kpi">
+                  <div>Intersections</div>
+                  <strong>{metrics.intersections}</strong>
+                </div>
+                <div className="kpi">
+                  <div>Area (km²)</div>
+                  <strong>{Number(metrics.area_km2).toFixed(3)}</strong>
+                </div>
+                <div className="kpi">
+                  <div>GFA (×10k m²)</div>
+                  <strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong>
+                </div>
               </div>
-              <div className="kpis" style={{marginTop:8}}>
-                <div className="kpi"><div>Likely</div><strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong></div>
-                <div className="kpi"><div>Range</div><strong>{budget ? `$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}` : '—'}</strong></div>
+              <div className="kpis" style={{ marginTop: 8 }}>
+                <div className="kpi">
+                  <div>Likely</div>
+                  <strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong>
+                </div>
+                <div className="kpi">
+                  <div>Range</div>
+                  <strong>
+                    {budget
+                      ? `$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}`
+                      : '—'}
+                  </strong>
+                </div>
               </div>
             </>
           )}
-          {!poly && <div style={{marginTop:8}}>Use the polygon tool to draw your proposed district.</div>}
-          <div style={{marginTop:6, fontSize:12, opacity:0.6}}>© OpenStreetMap contributors</div>
+          {!poly && (
+            <div style={{ marginTop: 8 }}>
+              Use the polygon tool to draw your proposed district.
+            </div>
+          )}
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
+            © OpenStreetMap contributors
+          </div>
         </div>
+
+        <details>
+          <summary>Advanced (coefficients)</summary>
+          <div className="kpis" style={{ marginTop: 8 }}>
+            <label className="kpi">
+              α per business
+              <br />
+              <input
+                type="number"
+                value={coeffs.alpha}
+                onChange={e =>
+                  setCoeffs({ ...coeffs, alpha: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="kpi">
+              β per intersection
+              <br />
+              <input
+                type="number"
+                value={coeffs.beta}
+                onChange={e =>
+                  setCoeffs({ ...coeffs, beta: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="kpi">
+              γ per km²
+              <br />
+              <input
+                type="number"
+                value={coeffs.gamma}
+                onChange={e =>
+                  setCoeffs({ ...coeffs, gamma: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="kpi">
+              δ per 10k m²
+              <br />
+              <input
+                type="number"
+                value={coeffs.delta}
+                onChange={e =>
+                  setCoeffs({ ...coeffs, delta: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="kpi">
+              Base
+              <br />
+              <input
+                type="number"
+                value={coeffs.base}
+                onChange={e =>
+                  setCoeffs({ ...coeffs, base: Number(e.target.value) })
+                }
+              />
+            </label>
+          </div>
+        </details>
       </div>
     </div>
   )
