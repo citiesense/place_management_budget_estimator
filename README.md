@@ -13,13 +13,12 @@ Create `.env` from `.env.example` for local env if you want to call CARTO direct
 ## Netlify deploy (recommended)
 1) Connect this repo in Netlify → set Build: `npm run build` and Publish dir: `dist`
 2) Set **Environment variables** in Netlify (Production context):
-   - `CARTO_SQL_BASE` = `https://ginkgo.carto.com/v3/sql`
-   - `CARTO_CONN` = `ginkgo.carto_dw`
-   - `CARTO_API_KEY` = `***`
-   - `VITE_SQL_PROXY` = `/api/sql`
-   - `VITE_PLACES_TABLE` = `carto_overture_geography_glo_places_v3`
-   - `VITE_BUILDINGS_TABLE` = `carto_overture_geography_glo_building_v3`
-   - `VITE_SEGMENTS_TABLE` = `sub_overture_geography_glo_transportationsegment_v3`
++ CARTO_SQL_BASE=__SET_IN_NETLIFY_ENV__
++ CARTO_CONN=__SET_IN_NETLIFY_ENV__
++ VITE_SQL_PROXY=/.netlify/functions/sql
++ VITE_PLACES_TABLE=__PUBLIC_TABLE_NAME__
++ VITE_BUILDINGS_TABLE=__PUBLIC_TABLE_NAME__
++ VITE_SEGMENTS_TABLE=__PUBLIC_TABLE_NAME__
 
 Netlify serves the app from `dist/` and proxies `POST /api/sql` to a serverless function that hits CARTO with your key.
 
