@@ -15,7 +15,7 @@
     "@deck.gl/layers": "^8.9.36",
     "@deck.gl/carto": "^8.9.36",
     "@deck.gl/react": "^8.9.36",
-    "@deck.gl-community/editable-layers": "^1.0.8"
+    "@deck.gl-community/editable-layers": "^1.0.7"
   },
   "devDependencies": {
     "vite": "^5.0.0",
