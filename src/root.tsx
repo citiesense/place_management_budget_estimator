@@ -17,7 +17,7 @@ const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
-const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12'
+const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE
 
 async function cartoQuery(sql: string) {
   if (SQL_PROXY) {
