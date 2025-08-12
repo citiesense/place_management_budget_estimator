@@ -1,9 +1,8 @@
 {
   "name": "place-management-budget-estimator",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
-  "description": "Budget estimator using CARTO + deck.gl",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -18,8 +17,10 @@
     "@nebula.gl/edit-modes": "0.21.0",
     "@turf/area": "^6.5.0",
     "@turf/helpers": "^6.5.0",
-    "@loaders.gl/core": "^4.2.1",
-    "@loaders.gl/images": "^4.2.1",
+
+    "@loaders.gl/core": "^3.4.14",
+    "@loaders.gl/images": "^3.4.14",
+
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
