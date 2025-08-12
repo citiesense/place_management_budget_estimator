@@ -13,9 +13,13 @@
   to = "/.netlify/functions/sql"
   status = 200
 
+[[redirects]]
+  from = "/api/report"
+  to = "/.netlify/functions/report"
+  status = 200
+
 # SPA fallback
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-
