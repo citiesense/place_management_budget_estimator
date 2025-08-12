@@ -3,7 +3,9 @@ import DeckGL from '@deck.gl/react'
 import { TileLayer } from '@deck.gl/geo-layers'
 import { BitmapLayer } from '@deck.gl/layers'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
-import { DrawPolygonMode } from '@nebula.gl/edit-modes'
+import { DrawPolygonMode, ModifyMode } from '@nebula.gl/edit-modes'
+import { load } from '@loaders.gl/core'
+import { ImageLoader } from '@loaders.gl/images'
 
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
@@ -26,7 +28,6 @@ async function cartoQuery(sql: string) {
     if (!r.ok) throw new Error(await r.text())
     return r.json()
   }
-  // Fallback (avoid in production if possible)
   const url = `${SQL_BASE}/${CONN}/query`
   const r = await fetch(url, {
     method: 'POST',
@@ -41,6 +42,7 @@ async function cartoQuery(sql: string) {
 }
 
 export default function Root() {
+  const [mode, setMode] = useState<'draw'|'modify'>('draw')
   const [poly, setPoly] = useState<any>(null)
   const [metrics, setMetrics] = useState<any>(null)
   const [coeffs, setCoeffs] = useState({ alpha: 700, beta: 1500, gamma: 60000, delta: 8000, base: 80000 })
@@ -48,6 +50,7 @@ export default function Root() {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  // Recompute metrics when polygon changes
   useEffect(() => {
     if (!poly || !PLACES || !SEGS || !BLDGS) return
     const run = async () => {
@@ -92,45 +95,84 @@ SELECT * FROM metrics;`
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
-    // OSM raster basemap via TileLayer -> BitmapLayer
+    // Robust OSM raster basemap using loaders.gl to fetch tiles explicitly
     const basemap = new TileLayer({
       id: 'basemap-osm',
-      data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       minZoom: 0,
       maxZoom: 19,
       tileSize: 256,
-      // Guard carefully: only render when we have both the loaded image AND bbox + x/y/z
+      getTileData: async ({x, y, z}) => {
+        // Avoid undefined IDs
+        if (![x,y,z].every(n => Number.isFinite(n))) return null
+        const url = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
+        try {
+          const img = await load(url, ImageLoader, { image: { crossOrigin: 'anonymous' } })
+          return img
+        } catch (e) {
+          // Fail softly for an individual tile
+          console.warn('Tile load failed', url, e)
+          return null
+        }
+      },
       renderSubLayers: (props: any) => {
-        const tile = props?.tile
+        const t = props?.tile
         const data = props?.data
-        const bbox = tile?.bbox || tile?.boundingBox
-        if (!tile || !data || !bbox) return null
-        if (typeof tile.x !== 'number' || typeof tile.y !== 'number' || typeof tile.z !== 'number') return null
+        const bbox = t?.bbox || t?.boundingBox
+        if (!t || !bbox || !data) return null
         const { west, south, east, north } = bbox
         return new BitmapLayer(props, {
-          id: `bmp-${tile.x}-${tile.y}-${tile.z}`,
+          id: `bmp-${t.x}-${t.y}-${t.z}`,
           image: data,
           bounds: [west, south, east, north]
         })
       }
     })
 
-    const draw = new EditableGeoJsonLayer({
+    const fc = poly
+      ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: poly, properties: {} }] }
+      : { type: 'FeatureCollection', features: [] }
+
+    const drawOrEdit = new EditableGeoJsonLayer({
       id: 'draw',
-      data: poly
-        ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: poly, properties: {} }] }
-        : { type: 'FeatureCollection', features: [] },
-      mode: DrawPolygonMode, // use the class (prevents pointer errors)
+      data: fc,
+      mode: mode === 'draw' ? DrawPolygonMode : ModifyMode,
       onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
       },
+      selectedFeatureIndexes: [0],
       getLineColor: [243, 113, 41],
-      getFillColor: [243, 113, 41, 40]
+      getFillColor: [243, 113, 41, 40],
+      // quells the getRadius deprecation in older internals
+      getPointRadius: 8
     })
 
-    return [basemap, draw]
-  }, [poly])
+    return [basemap, drawOrEdit]
+  }, [poly, mode])
+
+  // Simple form state for report generation
+  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
+  const canSubmit = !!(contact.email && budget && poly)
+
+  async function submitReport() {
+    try {
+      const payload = {
+        contact,
+        polygon: { type: 'Feature', geometry: poly, properties: {} },
+        metrics, budget, coeffs,
+        context: { placesTable: PLACES, segmentsTable: SEGS, buildingsTable: BLDGS }
+      }
+      const r = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      if (!r.ok) throw new Error(await r.text())
+      alert('Thanks! Your report will be emailed shortly.')
+    } catch (e: any) {
+      alert(`Report error: ${String(e)}`)
+    }
+  }
 
   return (
     <div style={{ height: '100%' }}>
@@ -140,36 +182,39 @@ SELECT * FROM metrics;`
         layers={layers}
         onError={(e) => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
       />
+
+      {/* Controls panel */}
       <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <strong>Place Management Budget Estimator</strong>
-          <button onClick={() => setPoly(null)}>Clear</button>
+          <div>
+            <button onClick={() => setMode('draw')} disabled={mode==='draw'}>Draw</button>
+            <button onClick={() => setMode('modify')} disabled={mode==='modify'} style={{marginLeft:6}}>Refine</button>
+            <button onClick={() => { setPoly(null); setMetrics(null); setBudget(null); setMode('draw') }} style={{marginLeft:6}}>Clear</button>
+          </div>
         </div>
 
-        <div style={{ marginTop: 8 }}>
-          {loading && <div>Computing…</div>}
-          {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap' }}>Error: {errorMsg}</div>}
+        {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap', marginTop: 8 }}>Error: {errorMsg}</div>}
 
-          {metrics && budget && (
-            <>
-              <div className="kpis">
-                <div className="kpi"><div>Businesses</div><strong>{metrics.businesses}</strong></div>
-                <div className="kpi"><div>Intersections</div><strong>{metrics.intersections}</strong></div>
-                <div className="kpi"><div>Area (km²)</div><strong>{Number(metrics.area_km2).toFixed(3)}</strong></div>
-                <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
-              </div>
-              <div className="kpis" style={{ marginTop: 8 }}>
-                <div className="kpi"><div>Likely</div><strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong></div>
-                <div className="kpi"><div>Range</div><strong>{budget ? `$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}` : '—'}</strong></div>
-              </div>
-            </>
-          )}
+        {!poly && <div style={{ marginTop: 8 }}>Use <b>Draw</b> to outline your proposed district. Switch to <b>Refine</b> to drag vertices.</div>}
 
-          {!poly && <div style={{ marginTop: 8 }}>Use the polygon tool to draw your proposed district.</div>}
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© OpenStreetMap contributors</div>
-        </div>
+        {metrics && budget && (
+          <>
+            <div className="kpis" style={{ marginTop: 10 }}>
+              <div className="kpi"><div>Businesses</div><strong>{metrics.businesses}</strong></div>
+              <div className="kpi"><div>Intersections</div><strong>{metrics.intersections}</strong></div>
+              <div className="kpi"><div>Area (km²)</div><strong>{Number(metrics.area_km2).toFixed(3)}</strong></div>
+              <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
+            </div>
+            <div className="kpis" style={{ marginTop: 8 }}>
+              <div className="kpi"><div>Likely</div><strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong></div>
+              <div className="kpi"><div>Range</div><strong>{`$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}`}</strong></div>
+            </div>
+          </>
+        )}
 
-        <details>
+        {/* Coeffs */}
+        <details style={{ marginTop: 10 }}>
           <summary>Advanced (coefficients)</summary>
           <div className="kpis" style={{ marginTop: 8 }}>
             <label className="kpi">α per business<br />
@@ -189,6 +234,20 @@ SELECT * FROM metrics;`
             </label>
           </div>
         </details>
+
+        {/* Lead capture / report */}
+        <div style={{ borderTop: '1px solid #eee', marginTop: 12, paddingTop: 10 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Email me the report</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <input placeholder="Full name" value={contact.name} onChange={e=>setContact({...contact, name:e.target.value})} />
+            <input placeholder="Email" value={contact.email} onChange={e=>setContact({...contact, email:e.target.value})} />
+            <input placeholder="Current CRM (optional)" value={contact.crm} onChange={e=>setContact({...contact, crm:e.target.value})} />
+            <button disabled={!canSubmit || loading} onClick={submitReport}>Generate & email</button>
+          </div>
+          {!budget && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>Draw a polygon to unlock the report.</div>}
+        </div>
+
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© OpenStreetMap contributors</div>
       </div>
     </div>
   )
