@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import DeckGL from '@deck.gl/react'
 import { CartoLayer } from '@deck.gl/carto'
-import { EditableGeoJsonLayer } from '@deck.gl-community/editable-layers'
+import { EditableGeoJsonLayer } from '@nebula.gl/layers'
+import { DrawPolygonMode } from '@nebula.gl/edit-modes'
 
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
@@ -80,9 +81,11 @@ SELECT * FROM metrics;
   const layers = useMemo(() => {
     const draw = new EditableGeoJsonLayer({
       id: 'draw',
-      data: poly ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }]} : { type:'FeatureCollection', features:[] },
-      mode: 'drawPolygon',
-      onEdit: ({updatedData}: any) => {
+      data: poly
+        ? { type: 'FeatureCollection', features: [{ type:'Feature', geometry: poly, properties:{} }] }
+        : { type: 'FeatureCollection', features: [] },
+      mode: DrawPolygonMode,               // ← pass the mode class
+      onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
       },
