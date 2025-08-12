@@ -1,3 +1,5 @@
+import { TileLayer } from '@deck.gl/geo-layers'
+import { BitmapLayer } from '@deck.gl/layers'
 import React, { useMemo, useState, useEffect } from 'react'
 import DeckGL from '@deck.gl/react'
 import { CartoLayer } from '@deck.gl/carto'
