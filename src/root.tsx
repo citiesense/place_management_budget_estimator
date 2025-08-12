@@ -1,13 +1,13 @@
-import { TileLayer } from '@deck.gl/geo-layers'
-import { BitmapLayer } from '@deck.gl/layers'
 import React, { useMemo, useState, useEffect } from 'react'
 import DeckGL from '@deck.gl/react'
 import { CartoLayer } from '@deck.gl/carto'
+import { TileLayer } from '@deck.gl/geo-layers'
+import { BitmapLayer } from '@deck.gl/layers'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
-import { DrawPolygonMode } from '@nebula.gl/edit-modes'
 
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
+// Env
 const SQL_PROXY = import.meta.env.VITE_SQL_PROXY
 const SQL_BASE = import.meta.env.VITE_CARTO_SQL_BASE
 const CONN = import.meta.env.VITE_CARTO_CONN
@@ -17,7 +17,7 @@ const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
 async function cartoQuery(sql: string){
-  // Prefer the Netlify function proxy so the API key stays server-side
+  // Prefer Netlify function proxy so the API key stays server-side
   if (SQL_PROXY) {
     const r = await fetch(SQL_PROXY, {
       method: 'POST',
@@ -94,12 +94,31 @@ SELECT * FROM metrics;
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
+    // 1) Basemap (OSM raster via TileLayer → BitmapLayer)
+    const basemap = new TileLayer({
+      id: 'basemap-osm',
+      data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      minZoom: 0,
+      maxZoom: 19,
+      tileSize: 256,
+      renderSubLayers: (props) => {
+        const { tile, bbox: {west, south, east, north} } = props
+        return new BitmapLayer(props, {
+          id: `bmp-${tile.x}-${tile.y}-${tile.z}`,
+          image: tile.data,
+          bounds: [west, south, east, north]
+        })
+      }
+    })
+
+    // 2) Draw layer (polygon editor)
     const draw = new EditableGeoJsonLayer({
       id: 'draw',
       data: poly
         ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
         : { type:'FeatureCollection', features:[] },
-      mode: DrawPolygonMode,
+      // Using string mode to avoid extra deps
+      mode: 'drawPolygon',
       onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
@@ -108,6 +127,7 @@ SELECT * FROM metrics;
       getFillColor: [243, 113, 41, 40]
     })
 
+    // 3) Optional: show places intersecting polygon (hidden geometry styling)
     const places = new CartoLayer({
       id: 'places',
       connection: (import.meta.env.VITE_CARTO_CONN || 'bigquery'),
@@ -120,7 +140,8 @@ SELECT * FROM metrics;
       getLineColor: [0, 0, 0, 0]
     })
 
-    return [places, draw]
+    // Order matters: basemap at bottom
+    return [basemap, places, draw]
   }, [poly, PLACES])
 
   return (
@@ -149,6 +170,7 @@ SELECT * FROM metrics;
             </>
           )}
           {!poly && <div style={{marginTop:8}}>Use the polygon tool to draw your proposed district.</div>}
+          <div style={{marginTop:6, fontSize:12, opacity:0.6}}>© OpenStreetMap contributors</div>
         </div>
         <details>
           <summary>Advanced (coefficients)</summary>
