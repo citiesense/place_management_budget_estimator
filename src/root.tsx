@@ -17,23 +17,13 @@ const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
 async function cartoQuery(sql: string){
-  // Prefer Netlify function proxy so the API key stays server-side
   if (SQL_PROXY) {
-    const r = await fetch(SQL_PROXY, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: sql })
-    })
+    const r = await fetch(SQL_PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: sql }) })
     if(!r.ok) throw new Error(await r.text())
     return r.json()
   }
-  // Fallback: direct CARTO call (not recommended in production)
   const url = `${SQL_BASE}/${CONN}/query`
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-    body: JSON.stringify({ q: sql })
-  })
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` }, body: JSON.stringify({ q: sql }) })
   if(!r.ok) throw new Error(await r.text())
   return r.json()
 }
@@ -51,7 +41,6 @@ export default function Root(){
     const run = async () => {
       setLoading(true)
       setErrorMsg(null)
-
       const gj = JSON.stringify({ type:'Feature', geometry: poly })
       const sql = `
 DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
@@ -75,8 +64,7 @@ WITH metrics AS (
     ST_AREA(p)/1e6 AS area_km2,
     (SELECT COALESCE(SUM(ST_AREA(geometry))/10000.0, 0) FROM \`${BLDGS}\` WHERE ST_INTERSECTS(geometry, p)) AS gfa_10k_m2
 )
-SELECT * FROM metrics;
-`
+SELECT * FROM metrics;`
       const res = await cartoQuery(sql)
       const row = res?.rows?.[0] || {}
       setMetrics(row)
@@ -94,7 +82,7 @@ SELECT * FROM metrics;
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
-    // 1) Basemap (OSM raster via TileLayer → BitmapLayer)
+    // Always-on basemap (OSM raster)
     const basemap = new TileLayer({
       id: 'basemap-osm',
       data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -111,42 +99,59 @@ SELECT * FROM metrics;
       }
     })
 
-    // 2) Draw layer (polygon editor)
-    const draw = new EditableGeoJsonLayer({
-      id: 'draw',
-      data: poly
-        ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
-        : { type:'FeatureCollection', features:[] },
-      // Using string mode to avoid extra deps
-      mode: 'drawPolygon',
-      onEdit: ({ updatedData }: any) => {
-        const f = updatedData?.features?.[0]
-        setPoly(f?.geometry || null)
-      },
-      getLineColor: [243, 113, 41],
-      getFillColor: [243, 113, 41, 40]
-    })
+    const out: any[] = [basemap]
 
-    // 3) Optional: show places intersecting polygon (hidden geometry styling)
-    const places = new CartoLayer({
-      id: 'places',
-      connection: (import.meta.env.VITE_CARTO_CONN || 'bigquery'),
-      type: 'query',
-      sql: poly
-        ? `DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${JSON.stringify({type:'Feature', geometry: poly})}');
-           SELECT geometry FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p) LIMIT 5000`
-        : `SELECT geometry FROM \`${PLACES}\` LIMIT 0`,
-      getFillColor: [0, 0, 0, 0],
-      getLineColor: [0, 0, 0, 0]
-    })
+    // Draw layer: wrap in try so any error doesn't kill the map render
+    try {
+      const draw = new EditableGeoJsonLayer({
+        id: 'draw',
+        data: poly
+          ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
+          : { type:'FeatureCollection', features:[] },
+        mode: 'drawPolygon',
+        onEdit: ({ updatedData }: any) => {
+          const f = updatedData?.features?.[0]
+          setPoly(f?.geometry || null)
+        },
+        getLineColor: [243, 113, 41],
+        getFillColor: [243, 113, 41, 40]
+      })
+      out.push(draw)
+    } catch(e:any) {
+      console.error('Editable layer error:', e)
+    }
 
-    // Order matters: basemap at bottom
-    return [basemap, places, draw]
+    // Places layer (optional; only add if table id exists)
+    if (PLACES && typeof PLACES === 'string') {
+      try {
+        const places = new CartoLayer({
+          id: 'places',
+          connection: (import.meta.env.VITE_CARTO_CONN || 'bigquery'),
+          type: 'query',
+          sql: poly
+            ? `DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${JSON.stringify({type:'Feature', geometry: poly})}');
+               SELECT geometry FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p) LIMIT 5000`
+            : `SELECT geometry FROM \`${PLACES}\` LIMIT 0`,
+          getFillColor: [0, 0, 0, 0],
+          getLineColor: [0, 0, 0, 0]
+        })
+        out.push(places)
+      } catch(e:any) {
+        console.error('CartoLayer error:', e)
+      }
+    }
+
+    return out
   }, [poly, PLACES])
 
   return (
     <div style={{height:'100%'}}>
-      <DeckGL initialViewState={INITIAL_VIEW_STATE} controller={true} layers={layers} />
+      <DeckGL
+        initialViewState={INITIAL_VIEW_STATE}
+        controller={true}
+        layers={layers}
+        onError={(e) => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
+      />
       <div className="panel">
         <div className="row" style={{justifyContent:'space-between'}}>
           <strong>Place Management Budget Estimator (proxy)</strong>
@@ -164,8 +169,8 @@ SELECT * FROM metrics;
                 <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
               </div>
               <div className="kpis" style={{marginTop:8}}>
-                <div className="kpi"><div>Likely</div><strong>${budget.likely.toLocaleString()}</strong></div>
-                <div className="kpi"><div>Range</div><strong>${budget.low.toLocaleString()}–${budget.high.toLocaleString()}</strong></div>
+                <div className="kpi"><div>Likely</div><strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong></div>
+                <div className="kpi"><div>Range</div><strong>{budget ? `$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}` : '—'}</strong></div>
               </div>
             </>
           )}
