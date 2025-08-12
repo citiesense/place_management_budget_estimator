@@ -8,15 +8,16 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "dependencies": {
     "@deck.gl/core": "^8.9.36",
     "@deck.gl/layers": "^8.9.36",
     "@deck.gl/carto": "^8.9.36",
     "@deck.gl/react": "^8.9.36",
-    "@deck.gl-community/editable-layers": "^1.0.7"
-  },
+    "@nebula.gl/layers": "^0.27.0",
+    "@nebula.gl/edit-modes": "^0.27.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
   "devDependencies": {
     "vite": "^5.0.0",
     "@types/react": "^18.2.66",
