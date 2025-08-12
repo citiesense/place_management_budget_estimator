@@ -1,6 +1,6 @@
 {
   "name": "place-management-budget-estimator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Budget estimator using CARTO + deck.gl",
@@ -12,10 +12,10 @@
   "dependencies": {
     "@deck.gl/core": "^8.9.36",
     "@deck.gl/layers": "^8.9.36",
-    "@deck.gl/carto": "^8.9.36",
     "@deck.gl/react": "^8.9.36",
     "@deck.gl/geo-layers": "^8.9.36",
     "@nebula.gl/layers": "0.21.0",
+    "@nebula.gl/edit-modes": "0.21.0",
     "@turf/area": "^6.5.0",
     "@turf/helpers": "^6.5.0",
     "react": "^18.2.0",
