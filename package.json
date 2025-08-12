@@ -1,0 +1,26 @@
+{
+  "name": "place-management-budget-estimator",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@deck.gl/core": "^8.9.36",
+    "@deck.gl/layers": "^8.9.36",
+    "@deck.gl/carto": "^8.9.36",
+    "@deck.gl/react": "^8.9.36",
+    "@deck.gl-community/editable-layers": "^1.0.8"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "typescript": "^5.4.0"
+  }
+}
