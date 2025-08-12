@@ -1,15 +1,12 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import DeckGL from '@deck.gl/react'
-import { TileLayer } from '@deck.gl/geo-layers'
-import { BitmapLayer } from '@deck.gl/layers'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
 import { DrawPolygonMode, ModifyMode } from '@nebula.gl/edit-modes'
-import { load } from '@loaders.gl/core'
-import { ImageLoader } from '@loaders.gl/images'
+import Map from 'react-map-gl'
 
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
-// Env (proxy-first; direct is fallback only)
+// Env
 const SQL_PROXY = import.meta.env.VITE_SQL_PROXY
 const SQL_BASE = import.meta.env.VITE_CARTO_SQL_BASE
 const CONN = import.meta.env.VITE_CARTO_CONN
@@ -17,14 +14,15 @@ const API_KEY = import.meta.env.VITE_CARTO_API_KEY
 const PLACES = import.meta.env.VITE_PLACES_TABLE
 const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
-const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE;
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
+const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12'
 
 async function cartoQuery(sql: string) {
   if (SQL_PROXY) {
     const r = await fetch(SQL_PROXY, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ q: sql })
     })
     if (!r.ok) throw new Error(await r.text())
@@ -51,8 +49,9 @@ export default function Root() {
   const [budget, setBudget] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
+  const canSubmit = !!(contact.email && budget && poly)
 
-  // Recompute metrics when polygon changes
   useEffect(() => {
     if (!poly || !PLACES || !SEGS || !BLDGS) return
     const run = async () => {
@@ -80,81 +79,48 @@ WITH metrics AS (
     (SELECT COALESCE(SUM(ST_AREA(geometry))/10000.0, 0) FROM \`${BLDGS}\` WHERE ST_INTERSECTS(geometry, p)) AS gfa_10k_m2
 )
 SELECT * FROM metrics;`
-      const res = await cartoQuery(sql)
-      const row = res?.rows?.[0] || {}
-      setMetrics(row)
-      const likely = Math.round(
-        coeffs.base +
-        coeffs.alpha * (row.businesses || 0) +
-        coeffs.beta * (row.intersections || 0) +
-        coeffs.gamma * (row.area_km2 || 0) +
-        coeffs.delta * (row.gfa_10k_m2 || 0)
-      )
-      setBudget({ likely, low: Math.round(likely * 0.8), high: Math.round(likely * 1.2) })
-      setLoading(false)
+      try {
+        const res = await cartoQuery(sql)
+        const row = res?.rows?.[0] || {}
+        setMetrics(row)
+        const likely = Math.round(
+          coeffs.base +
+          coeffs.alpha * (row.businesses || 0) +
+          coeffs.beta * (row.intersections || 0) +
+          coeffs.gamma * (row.area_km2 || 0) +
+          coeffs.delta * (row.gfa_10k_m2 || 0)
+        )
+        setBudget({ likely, low: Math.round(likely * 0.8), high: Math.round(likely * 1.2) })
+      } catch (e: any) {
+        console.error(e); setErrorMsg(String(e))
+      } finally {
+        setLoading(false)
+      }
     }
-    run().catch(e => { console.error(e); setErrorMsg(String(e)); setLoading(false) })
+    run()
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
-    // Robust OSM raster basemap using loaders.gl to fetch tiles explicitly
-    const basemap = new TileLayer({
-      id: 'basemap-osm',
-      minZoom: 0,
-      maxZoom: 19,
-      tileSize: 256,
-      getTileData: async ({x, y, z}) => {
-        // Avoid undefined IDs
-        if (![x,y,z].every(n => Number.isFinite(n))) return null
-        const url = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
-        try {
-          const img = await load(url, ImageLoader, { image: { crossOrigin: 'anonymous' } })
-          return img
-        } catch (e) {
-          // Fail softly for an individual tile
-          console.warn('Tile load failed', url, e)
-          return null
-        }
-      },
-      renderSubLayers: (props: any) => {
-        const t = props?.tile
-        const data = props?.data
-        const bbox = t?.bbox || t?.boundingBox
-        if (!t || !bbox || !data) return null
-        const { west, south, east, north } = bbox
-        return new BitmapLayer(props, {
-          id: `bmp-${t.x}-${t.y}-${t.z}`,
-          image: data,
-          bounds: [west, south, east, north]
-        })
-      }
-    })
-
     const fc = poly
       ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: poly, properties: {} }] }
       : { type: 'FeatureCollection', features: [] }
 
-    const drawOrEdit = new EditableGeoJsonLayer({
-      id: 'draw',
-      data: fc,
-      mode: mode === 'draw' ? DrawPolygonMode : ModifyMode,
-      onEdit: ({ updatedData }: any) => {
-        const f = updatedData?.features?.[0]
-        setPoly(f?.geometry || null)
-      },
-      selectedFeatureIndexes: [0],
-      getLineColor: [243, 113, 41],
-      getFillColor: [243, 113, 41, 40],
-      // quells the getRadius deprecation in older internals
-      getPointRadius: 8
-    })
-
-    return [basemap, drawOrEdit]
+    return [
+      new EditableGeoJsonLayer({
+        id: 'draw',
+        data: fc,
+        mode: mode === 'draw' ? DrawPolygonMode : ModifyMode,
+        onEdit: ({ updatedData }: any) => {
+          const f = updatedData?.features?.[0]
+          setPoly(f?.geometry || null)
+        },
+        selectedFeatureIndexes: [0],
+        getLineColor: [243, 113, 41],
+        getFillColor: [243, 113, 41, 40],
+        getPointRadius: 8
+      })
+    ]
   }, [poly, mode])
-
-  // Simple form state for report generation
-  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
-  const canSubmit = !!(contact.email && budget && poly)
 
   async function submitReport() {
     try {
@@ -165,8 +131,7 @@ SELECT * FROM metrics;`
         context: { placesTable: PLACES, segmentsTable: SEGS, buildingsTable: BLDGS }
       }
       const r = await fetch('/api/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
       if (!r.ok) throw new Error(await r.text())
@@ -182,10 +147,11 @@ SELECT * FROM metrics;`
         initialViewState={INITIAL_VIEW_STATE}
         controller={true}
         layers={layers}
-        onError={(e) => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
-      />
+        onError={e => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
+      >
+        <Map reuseMaps mapboxAccessToken={MAPBOX_TOKEN} mapStyle={MAPBOX_STYLE} />
+      </DeckGL>
 
-      {/* Controls panel */}
       <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <strong>Place Management Budget Estimator</strong>
@@ -197,7 +163,6 @@ SELECT * FROM metrics;`
         </div>
 
         {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap', marginTop: 8 }}>Error: {errorMsg}</div>}
-
         {!poly && <div style={{ marginTop: 8 }}>Use <b>Draw</b> to outline your proposed district. Switch to <b>Refine</b> to drag vertices.</div>}
 
         {metrics && budget && (
@@ -215,7 +180,6 @@ SELECT * FROM metrics;`
           </>
         )}
 
-        {/* Coeffs */}
         <details style={{ marginTop: 10 }}>
           <summary>Advanced (coefficients)</summary>
           <div className="kpis" style={{ marginTop: 8 }}>
@@ -237,7 +201,6 @@ SELECT * FROM metrics;`
           </div>
         </details>
 
-        {/* Lead capture / report */}
         <div style={{ borderTop: '1px solid #eee', marginTop: 12, paddingTop: 10 }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>Email me the report</div>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -249,7 +212,7 @@ SELECT * FROM metrics;`
           {!budget && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>Draw a polygon to unlock the report.</div>}
         </div>
 
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© OpenStreetMap contributors</div>
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© Map data © Mapbox & OpenStreetMap contributors</div>
       </div>
     </div>
   )
