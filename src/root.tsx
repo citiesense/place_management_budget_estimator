@@ -15,15 +15,21 @@ const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
 async function cartoQuery(sql: string){
+  // Prefer the Netlify function proxy so the API key stays server-side
   if (SQL_PROXY) {
-    const r = await fetch(SQL_PROXY, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ q: sql }) })
+    const r = await fetch(SQL_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: sql })
+    })
     if(!r.ok) throw new Error(await r.text())
     return r.json()
   }
+  // Fallback: direct CARTO call (not recommended in production)
   const url = `${SQL_BASE}/${CONN}/query`
   const r = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${API_KEY}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
     body: JSON.stringify({ q: sql })
   })
   if(!r.ok) throw new Error(await r.text())
@@ -43,6 +49,7 @@ export default function Root(){
     const run = async () => {
       setLoading(true)
       setErrorMsg(null)
+
       const gj = JSON.stringify({ type:'Feature', geometry: poly })
       const sql = `
 DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
@@ -71,7 +78,13 @@ SELECT * FROM metrics;
       const res = await cartoQuery(sql)
       const row = res?.rows?.[0] || {}
       setMetrics(row)
-      const likely = Math.round(coeffs.base + coeffs.alpha*row.businesses + coeffs.beta*row.intersections + coeffs.gamma*row.area_km2 + coeffs.delta*row.gfa_10k_m2)
+      const likely = Math.round(
+        coeffs.base
+        + coeffs.alpha * (row.businesses || 0)
+        + coeffs.beta * (row.intersections || 0)
+        + coeffs.gamma * (row.area_km2 || 0)
+        + coeffs.delta * (row.gfa_10k_m2 || 0)
+      )
       setBudget({ likely, low: Math.round(likely*0.8), high: Math.round(likely*1.2) })
       setLoading(false)
     }
@@ -82,9 +95,9 @@ SELECT * FROM metrics;
     const draw = new EditableGeoJsonLayer({
       id: 'draw',
       data: poly
-        ? { type: 'FeatureCollection', features: [{ type:'Feature', geometry: poly, properties:{} }] }
-        : { type: 'FeatureCollection', features: [] },
-      mode: DrawPolygonMode,               // ← pass the mode class
+        ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
+        : { type:'FeatureCollection', features:[] },
+      mode: DrawPolygonMode,
       onEdit: ({ updatedData }: any) => {
         const f = updatedData?.features?.[0]
         setPoly(f?.geometry || null)
@@ -95,16 +108,18 @@ SELECT * FROM metrics;
 
     const places = new CartoLayer({
       id: 'places',
-      connection: CONN || 'bigquery',
+      connection: (import.meta.env.VITE_CARTO_CONN || 'bigquery'),
       type: 'query',
-      sql: poly ? `DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${JSON.stringify({type:'Feature', geometry: poly})}');
-                   SELECT geometry FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p) LIMIT 5000` : `SELECT geometry FROM \`${PLACES}\` LIMIT 0`,
+      sql: poly
+        ? `DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${JSON.stringify({type:'Feature', geometry: poly})}');
+           SELECT geometry FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p) LIMIT 5000`
+        : `SELECT geometry FROM \`${PLACES}\` LIMIT 0`,
       getFillColor: [0, 0, 0, 0],
       getLineColor: [0, 0, 0, 0]
     })
 
     return [places, draw]
-  }, [poly, PLACES, CONN])
+  }, [poly, PLACES])
 
   return (
     <div style={{height:'100%'}}>
@@ -122,8 +137,8 @@ SELECT * FROM metrics;
               <div className="kpis">
                 <div className="kpi"><div>Businesses</div><strong>{metrics.businesses}</strong></div>
                 <div className="kpi"><div>Intersections</div><strong>{metrics.intersections}</strong></div>
-                <div className="kpi"><div>Area (km²)</div><strong>{metrics.area_km2?.toFixed(3)}</strong></div>
-                <div className="kpi"><div>GFA (×10k m²)</div><strong>{metrics.gfa_10k_m2?.toFixed(1)}</strong></div>
+                <div className="kpi"><div>Area (km²)</div><strong>{Number(metrics.area_km2).toFixed(3)}</strong></div>
+                <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
               </div>
               <div className="kpis" style={{marginTop:8}}>
                 <div className="kpi"><div>Likely</div><strong>${budget.likely.toLocaleString()}</strong></div>
