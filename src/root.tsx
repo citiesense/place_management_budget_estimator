@@ -17,6 +17,8 @@ const API_KEY = import.meta.env.VITE_CARTO_API_KEY
 const PLACES = import.meta.env.VITE_PLACES_TABLE
 const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
+const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE;
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 async function cartoQuery(sql: string) {
   if (SQL_PROXY) {
