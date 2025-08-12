@@ -1,13 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import DeckGL from '@deck.gl/react'
-import { CartoLayer } from '@deck.gl/carto'
 import { TileLayer } from '@deck.gl/geo-layers'
 import { BitmapLayer } from '@deck.gl/layers'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
+import { DrawPolygonMode } from '@nebula.gl/edit-modes'
 
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
-// Env
+// Env (proxy first; we will not use client CartoLayer to avoid exposing the key)
 const SQL_PROXY = import.meta.env.VITE_SQL_PROXY
 const SQL_BASE = import.meta.env.VITE_CARTO_SQL_BASE
 const CONN = import.meta.env.VITE_CARTO_CONN
@@ -23,7 +23,7 @@ async function cartoQuery(sql: string){
     return r.json()
   }
   const url = `${SQL_BASE}/${CONN}/query`
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` }, body: JSON.stringify({ q: sql }) })
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}) }, body: JSON.stringify({ q: sql }) })
   if(!r.ok) throw new Error(await r.text())
   return r.json()
 }
@@ -39,8 +39,7 @@ export default function Root(){
   useEffect(() => {
     if(!poly || !PLACES || !SEGS || !BLDGS) return
     const run = async () => {
-      setLoading(true)
-      setErrorMsg(null)
+      setLoading(true); setErrorMsg(null)
       const gj = JSON.stringify({ type:'Feature', geometry: poly })
       const sql = `
 DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
@@ -54,8 +53,7 @@ WITH metrics AS (
       ),
       endpoints AS (
         SELECT ST_STARTPOINT(geometry) AS node FROM segs
-        UNION ALL
-        SELECT ST_ENDPOINT(geometry)   AS node FROM segs
+        UNION ALL SELECT ST_ENDPOINT(geometry) AS node FROM segs
       ),
       nodes AS (SELECT ST_SNAPTOGRID(node, 1e-6) AS node FROM endpoints),
       counts AS (SELECT node, COUNT(*) AS deg FROM nodes GROUP BY node)
@@ -82,7 +80,6 @@ SELECT * FROM metrics;`
   }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
   const layers = useMemo(() => {
-    // Always-on basemap (OSM raster)
     const basemap = new TileLayer({
       id: 'basemap-osm',
       data: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -90,59 +87,32 @@ SELECT * FROM metrics;`
       maxZoom: 19,
       tileSize: 256,
       renderSubLayers: (props) => {
-        const { tile, bbox: {west, south, east, north} } = props
+        const { west, south, east, north } = props.tile.bbox  // <-- fix
         return new BitmapLayer(props, {
-          id: `bmp-${tile.x}-${tile.y}-${tile.z}`,
-          image: tile.data,
+          id: `bmp-${props.tile.x}-${props.tile.y}-${props.tile.z}`,
+          image: props.tile.data,
           bounds: [west, south, east, north]
         })
       }
     })
 
-    const out: any[] = [basemap]
+    const draw = new EditableGeoJsonLayer({
+      id: 'draw',
+      data: poly
+        ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
+        : { type:'FeatureCollection', features:[] },
+      mode: DrawPolygonMode,           // <-- use class, not string
+      onEdit: ({ updatedData }: any) => {
+        const f = updatedData?.features?.[0]
+        setPoly(f?.geometry || null)
+      },
+      getLineColor: [243, 113, 41],
+      getFillColor: [243, 113, 41, 40]
+    })
 
-    // Draw layer: wrap in try so any error doesn't kill the map render
-    try {
-      const draw = new EditableGeoJsonLayer({
-        id: 'draw',
-        data: poly
-          ? { type:'FeatureCollection', features:[{ type:'Feature', geometry: poly, properties:{} }] }
-          : { type:'FeatureCollection', features:[] },
-        mode: 'drawPolygon',
-        onEdit: ({ updatedData }: any) => {
-          const f = updatedData?.features?.[0]
-          setPoly(f?.geometry || null)
-        },
-        getLineColor: [243, 113, 41],
-        getFillColor: [243, 113, 41, 40]
-      })
-      out.push(draw)
-    } catch(e:any) {
-      console.error('Editable layer error:', e)
-    }
-
-    // Places layer (optional; only add if table id exists)
-    if (PLACES && typeof PLACES === 'string') {
-      try {
-        const places = new CartoLayer({
-          id: 'places',
-          connection: (import.meta.env.VITE_CARTO_CONN || 'bigquery'),
-          type: 'query',
-          sql: poly
-            ? `DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${JSON.stringify({type:'Feature', geometry: poly})}');
-               SELECT geometry FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p) LIMIT 5000`
-            : `SELECT geometry FROM \`${PLACES}\` LIMIT 0`,
-          getFillColor: [0, 0, 0, 0],
-          getLineColor: [0, 0, 0, 0]
-        })
-        out.push(places)
-      } catch(e:any) {
-        console.error('CartoLayer error:', e)
-      }
-    }
-
-    return out
-  }, [poly, PLACES])
+    // Only basemap + draw for now (CartoLayer removed to keep key server-side)
+    return [basemap, draw]
+  }, [poly])
 
   return (
     <div style={{height:'100%'}}>
@@ -154,7 +124,7 @@ SELECT * FROM metrics;`
       />
       <div className="panel">
         <div className="row" style={{justifyContent:'space-between'}}>
-          <strong>Place Management Budget Estimator (proxy)</strong>
+          <strong>Place Management Budget Estimator</strong>
           <button onClick={() => setPoly(null)}>Clear</button>
         </div>
         <div style={{marginTop:8}}>
@@ -177,26 +147,6 @@ SELECT * FROM metrics;`
           {!poly && <div style={{marginTop:8}}>Use the polygon tool to draw your proposed district.</div>}
           <div style={{marginTop:6, fontSize:12, opacity:0.6}}>© OpenStreetMap contributors</div>
         </div>
-        <details>
-          <summary>Advanced (coefficients)</summary>
-          <div className="kpis" style={{marginTop:8}}>
-            <label className="kpi">α per business<br/>
-              <input type="number" value={coeffs.alpha} onChange={e=>setCoeffs({...coeffs, alpha: Number(e.target.value)})} />
-            </label>
-            <label className="kpi">β per intersection<br/>
-              <input type="number" value={coeffs.beta} onChange={e=>setCoeffs({...coeffs, beta: Number(e.target.value)})} />
-            </label>
-            <label className="kpi">γ per km²<br/>
-              <input type="number" value={coeffs.gamma} onChange={e=>setCoeffs({...coeffs, gamma: Number(e.target.value)})} />
-            </label>
-            <label className="kpi">δ per 10k m²<br/>
-              <input type="number" value={coeffs.delta} onChange={e=>setCoeffs({...coeffs, delta: Number(e.target.value)})} />
-            </label>
-            <label className="kpi">Base<br/>
-              <input type="number" value={coeffs.base} onChange={e=>setCoeffs({...coeffs, base: Number(e.target.value)})} />
-            </label>
-          </div>
-        </details>
       </div>
     </div>
   )
