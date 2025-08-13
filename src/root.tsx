@@ -1,71 +1,108 @@
-import React, { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect, useCallback } from 'react'
 import DeckGL from '@deck.gl/react'
 import { EditableGeoJsonLayer } from '@nebula.gl/layers'
 import { DrawPolygonMode, ModifyMode } from '@nebula.gl/edit-modes'
 import Map from 'react-map-gl'
 
+// View & env
 const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
 
-// Env
-const SQL_PROXY = import.meta.env.VITE_SQL_PROXY
-const SQL_BASE = import.meta.env.VITE_CARTO_SQL_BASE
-const CONN = import.meta.env.VITE_CARTO_CONN
-const API_KEY = import.meta.env.VITE_CARTO_API_KEY
+const SQL_PROXY = '/api/sql' // always use the Netlify function in prod
 const PLACES = import.meta.env.VITE_PLACES_TABLE
 const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
 const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
 
-
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
-const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE
+const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12'
+
+type Coeffs = { alpha: number; beta: number; gamma: number; delta: number; base: number }
 
 async function cartoQuery(sql: string) {
-  if (SQL_PROXY) {
-    const r = await fetch(SQL_PROXY, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: sql })
-    })
-    if (!r.ok) throw new Error(await r.text())
-    return r.json()
+  const r = await fetch(SQL_PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: sql }) })
+  if (!r.ok) {
+    const t = await r.text()
+    throw new Error(`SQL ${r.status}: ${t}`)
   }
-  const url = `${SQL_BASE}/${CONN}/query`
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {})
-    },
-    body: JSON.stringify({ q: sql })
-  })
-  if (!r.ok) throw new Error(await r.text())
   return r.json()
 }
 
 export default function Root() {
-  const [mode, setMode] = useState<'draw'|'modify'>('draw')
-  const [poly, setPoly] = useState<any>(null)
-  const [metrics, setMetrics] = useState<any>(null)
-  const [coeffs, setCoeffs] = useState({ alpha: 700, beta: 1500, gamma: 60000, delta: 8000, base: 80000 })
-  const [budget, setBudget] = useState<any>(null)
+  const [drawMode, setDrawMode] = useState<'draw'|'modify'>('draw')
+  const [workingFc, setWorkingFc] = useState<any>({ type: 'FeatureCollection', features: [] })
+  const [confirmedPoly, setConfirmedPoly] = useState<any>(null)
+
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
-  const canSubmit = !!(contact.email && budget && poly)
 
-  useEffect(() => {
-    if (!poly || !PLACES || !SEGS || !BLDGS) return
-    const run = async () => {
-      setLoading(true); setErrorMsg(null)
-      const gj = JSON.stringify({ type: 'Feature', geometry: poly })
-      const sql = `
+  const [metrics, setMetrics] = useState<any>(null)
+  const [coeffs, setCoeffs] = useState<Coeffs>({ alpha: 700, beta: 1500, gamma: 60000, delta: 8000, base: 80000 })
+  const [budget, setBudget] = useState<any>(null)
+
+  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
+
+  // Build draw layer
+  const layers = useMemo(() => {
+    return [
+      new EditableGeoJsonLayer({
+        id: 'draw-layer',
+        data: workingFc,
+        mode: drawMode === 'draw' ? DrawPolygonMode : ModifyMode,
+        selectedFeatureIndexes: [0],
+        onEdit: ({ updatedData }: any) => {
+          setErrorMsg(null)
+          setBudget(null)
+          setMetrics(null)
+          setConfirmedPoly(null) // any edit invalidates confirmation
+          setWorkingFc(updatedData)
+        },
+        getLineColor: [243, 113, 41],
+        getFillColor: [243, 113, 41, 40],
+        getPointRadius: 8
+      })
+    ]
+  }, [workingFc, drawMode])
+
+  // Confirm polygon: ensure we have exactly 1 polygon with >= 3 vertices
+  const confirmPolygon = useCallback(() => {
+    const f = workingFc?.features?.[0]
+    const geom = f?.geometry
+    if (!geom || geom.type !== 'Polygon') {
+      setErrorMsg('Please draw a closed polygon before confirming.')
+      return
+    }
+    const ring = geom.coordinates?.[0]
+    if (!Array.isArray(ring) || ring.length < 4) {
+      setErrorMsg('Polygon needs at least 3 vertices.')
+      return
+    }
+    setErrorMsg(null)
+    setConfirmedPoly(geom)
+    setDrawMode('modify') // allow refine post-confirm
+  }, [workingFc])
+
+  // Fetch estimate only when user clicks
+  const fetchEstimate = useCallback(async () => {
+    if (!PLACES || !SEGS || !BLDGS) {
+      setErrorMsg('Missing table configuration. Check env vars for VITE_PLACES_TABLE, VITE_SEGMENTS_TABLE, VITE_BUILDINGS_TABLE.')
+      return
+    }
+    if (!confirmedPoly) {
+      setErrorMsg('Confirm your polygon first.')
+      return
+    }
+
+    const gj = JSON.stringify({ type: 'Feature', geometry: confirmedPoly })
+    const sql = `
 DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
 WITH metrics AS (
   SELECT
-    (SELECT COUNT(*) FROM \`${PLACES}\` WHERE ST_INTERSECTS(geometry, p)
+    (SELECT COUNT(*) FROM \`${PLACES}\`
+      WHERE ST_INTERSECTS(geometry, p)
       AND (categories.primary IN ("restaurant","retail","cafe","shop","services"))) AS businesses,
     (SELECT COUNT(*) FROM (
       WITH segs AS (
-        SELECT geometry FROM \`${SEGS}\` WHERE subtype='road' AND ST_INTERSECTS(geometry, p)
+        SELECT geometry FROM \`${SEGS}\`
+        WHERE subtype='road' AND ST_INTERSECTS(geometry, p)
       ),
       endpoints AS (
         SELECT ST_STARTPOINT(geometry) AS node FROM segs
@@ -76,79 +113,44 @@ WITH metrics AS (
       SELECT * FROM counts WHERE deg >= 3
     )) AS intersections,
     ST_AREA(p)/1e6 AS area_km2,
-    (SELECT COALESCE(SUM(ST_AREA(geometry))/10000.0, 0) FROM \`${BLDGS}\` WHERE ST_INTERSECTS(geometry, p)) AS gfa_10k_m2
+    (SELECT COALESCE(SUM(ST_AREA(geometry))/10000.0, 0) FROM \`${BLDGS}\`
+      WHERE ST_INTERSECTS(geometry, p)) AS gfa_10k_m2
 )
 SELECT * FROM metrics;`
-      try {
-        const res = await cartoQuery(sql)
-        const row = res?.rows?.[0] || {}
-        setMetrics(row)
-        const likely = Math.round(
-          coeffs.base +
-          coeffs.alpha * (row.businesses || 0) +
-          coeffs.beta * (row.intersections || 0) +
-          coeffs.gamma * (row.area_km2 || 0) +
-          coeffs.delta * (row.gfa_10k_m2 || 0)
-        )
-        setBudget({ likely, low: Math.round(likely * 0.8), high: Math.round(likely * 1.2) })
-      } catch (e: any) {
-        console.error(e); setErrorMsg(String(e))
-      } finally {
-        setLoading(false)
-      }
-    }
-    run()
-  }, [poly, coeffs, PLACES, SEGS, BLDGS])
 
-  const layers = useMemo(() => {
-    const fc = poly
-      ? { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: poly, properties: {} }] }
-      : { type: 'FeatureCollection', features: [] }
-
-    return [
-      new EditableGeoJsonLayer({
-        id: 'draw',
-        data: fc,
-        mode: mode === 'draw' ? DrawPolygonMode : ModifyMode,
-        onEdit: ({ updatedData }: any) => {
-          const f = updatedData?.features?.[0]
-          setPoly(f?.geometry || null)
-        },
-        selectedFeatureIndexes: [0],
-        getLineColor: [243, 113, 41],
-        getFillColor: [243, 113, 41, 40],
-        getPointRadius: 8
-      })
-    ]
-  }, [poly, mode])
-
-  async function submitReport() {
     try {
-      const payload = {
-        contact,
-        polygon: { type: 'Feature', geometry: poly, properties: {} },
-        metrics, budget, coeffs,
-        context: { placesTable: PLACES, segmentsTable: SEGS, buildingsTable: BLDGS }
-      }
-      const r = await fetch('/api/report', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-      if (!r.ok) throw new Error(await r.text())
-      alert('Thanks! Your report will be emailed shortly.')
+      setLoading(true)
+      setErrorMsg(null)
+      const res = await cartoQuery(sql)
+      const row = res?.rows?.[0] || {}
+      setMetrics(row)
+      const likely = Math.round(
+        coeffs.base +
+        coeffs.alpha * (row.businesses || 0) +
+        coeffs.beta * (row.intersections || 0) +
+        coeffs.gamma * (row.area_km2 || 0) +
+        coeffs.delta * (row.gfa_10k_m2 || 0)
+      )
+      setBudget({ likely, low: Math.round(likely * 0.8), high: Math.round(likely * 1.2) })
     } catch (e: any) {
-      alert(`Report error: ${String(e)}`)
+      setErrorMsg(e?.message || String(e))
+    } finally {
+      setLoading(false)
     }
+  }, [confirmedPoly, coeffs, PLACES, SEGS, BLDGS])
+
+  const clearAll = () => {
+    setWorkingFc({ type: 'FeatureCollection', features: [] })
+    setConfirmedPoly(null)
+    setMetrics(null)
+    setBudget(null)
+    setErrorMsg(null)
+    setDrawMode('draw')
   }
 
   return (
     <div style={{ height: '100%' }}>
-      <DeckGL
-        initialViewState={INITIAL_VIEW_STATE}
-        controller={true}
-        layers={layers}
-        onError={e => { console.error('DeckGL error:', e); setErrorMsg(String(e)) }}
-      >
+      <DeckGL initialViewState={INITIAL_VIEW_STATE} controller={true} layers={layers}>
         <Map reuseMaps mapboxAccessToken={MAPBOX_TOKEN} mapStyle={MAPBOX_STYLE} />
       </DeckGL>
 
@@ -156,14 +158,29 @@ SELECT * FROM metrics;`
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <strong>Place Management Budget Estimator</strong>
           <div>
-            <button onClick={() => setMode('draw')} disabled={mode==='draw'}>Draw</button>
-            <button onClick={() => setMode('modify')} disabled={mode==='modify'} style={{marginLeft:6}}>Refine</button>
-            <button onClick={() => { setPoly(null); setMetrics(null); setBudget(null); setMode('draw') }} style={{marginLeft:6}}>Clear</button>
+            <button onClick={() => setDrawMode('draw')} disabled={drawMode==='draw'}>Draw</button>
+            <button onClick={() => setDrawMode('modify')} disabled={drawMode==='modify'} style={{marginLeft:6}}>Refine</button>
+            <button onClick={clearAll} style={{marginLeft:6}}>Clear</button>
           </div>
         </div>
 
+        {!confirmedPoly ? (
+          <>
+            <div style={{ marginTop: 8 }}>
+              Draw your area. When you’re happy, click <b>Confirm polygon</b>. You can still refine after confirming.
+            </div>
+            <button style={{ marginTop: 8 }} onClick={confirmPolygon} disabled={workingFc?.features?.length === 0}>
+              Confirm polygon
+            </button>
+          </>
+        ) : (
+          <div className="row" style={{ marginTop: 8, gap: 8 }}>
+            <span>Polygon confirmed.</span>
+            <button onClick={fetchEstimate} disabled={loading}>{loading ? 'Fetching…' : 'Fetch estimate'}</button>
+          </div>
+        )}
+
         {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap', marginTop: 8 }}>Error: {errorMsg}</div>}
-        {!poly && <div style={{ marginTop: 8 }}>Use <b>Draw</b> to outline your proposed district. Switch to <b>Refine</b> to drag vertices.</div>}
 
         {metrics && budget && (
           <>
@@ -200,17 +217,6 @@ SELECT * FROM metrics;`
             </label>
           </div>
         </details>
-
-        <div style={{ borderTop: '1px solid #eee', marginTop: 12, paddingTop: 10 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Email me the report</div>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <input placeholder="Full name" value={contact.name} onChange={e=>setContact({...contact, name:e.target.value})} />
-            <input placeholder="Email" value={contact.email} onChange={e=>setContact({...contact, email:e.target.value})} />
-            <input placeholder="Current CRM (optional)" value={contact.crm} onChange={e=>setContact({...contact, crm:e.target.value})} />
-            <button disabled={!canSubmit || loading} onClick={submitReport}>Generate & email</button>
-          </div>
-          {!budget && <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>Draw a polygon to unlock the report.</div>}
-        </div>
 
         <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© Map data © Mapbox & OpenStreetMap contributors</div>
       </div>
