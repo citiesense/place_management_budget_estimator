@@ -2,7 +2,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { placesWithinPolygonSQL } from './lib/queries';
+import { fetchPlacesWithinPolygon } from '../lib/fetchPlaces';
+
+async function handlePolygonSelect(geojson: string) {
+  try {
+    const results = await fetchPlacesWithinPolygon(geojson);
+    console.log('Places within polygon:', results);
+    // TODO: use results in your state/UI
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
