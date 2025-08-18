@@ -1,225 +1,245 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react'
-import DeckGL from '@deck.gl/react'
-import { EditableGeoJsonLayer } from '@nebula.gl/layers'
-import { DrawPolygonMode, ModifyMode } from '@nebula.gl/edit-modes'
-import Map from 'react-map-gl'
+// src/root.tsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { placesWithinPolygonSQL } from './lib/queries';
 
-// View & env
-const INITIAL_VIEW_STATE = { longitude: -73.9855, latitude: 40.7484, zoom: 12, pitch: 0, bearing: 0 }
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
+const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
 
-const SQL_PROXY = '/api/sql' // always use the Netlify function in prod
-const PLACES = import.meta.env.VITE_PLACES_TABLE
-const SEGS = import.meta.env.VITE_SEGMENTS_TABLE
-const BLDGS = import.meta.env.VITE_BUILDINGS_TABLE
+type FeatureCollection = GeoJSON.FeatureCollection;
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN
-const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12'
+const CATEGORY_COLORS: Record<string, string> = {
+  'food_and_drink': '#e45756',
+  'shopping': '#f58518',
+  'health': '#54a24b',
+  'education': '#4c78a8',
+  'entertainment': '#b279a2',
+  'transportation': '#72b7b2',
+  'finance': '#ff9da7',
+  'government': '#9e765f',
+  'other': '#bab0ac'
+};
 
-type Coeffs = { alpha: number; beta: number; gamma: number; delta: number; base: number }
-
-async function cartoQuery(sql: string) {
-  const r = await fetch(SQL_PROXY, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q: sql }) })
-  if (!r.ok) {
-    const t = await r.text()
-    throw new Error(`SQL ${r.status}: ${t}`)
-  }
-  return r.json()
+function colorFor(category?: string) {
+  if (!category) return CATEGORY_COLORS.other;
+  const key = category.toLowerCase();
+  return CATEGORY_COLORS[key] ?? CATEGORY_COLORS.other;
 }
 
 export default function Root() {
-  const [drawMode, setDrawMode] = useState<'draw'|'modify'>('draw')
-  const [workingFc, setWorkingFc] = useState<any>({ type: 'FeatureCollection', features: [] })
-  const [confirmedPoly, setConfirmedPoly] = useState<any>(null)
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const drawRef = useRef<any>(null);
+  const [polygon, setPolygon] = useState<FeatureCollection | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [placeCount, setPlaceCount] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [loading, setLoading] = useState(false)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  useEffect(() => {
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: MAPBOX_STYLE,
+      center: [-97.5, 39.8],
+      zoom: 3.8,
+      attributionControl: false
+    });
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+    mapRef.current = map;
 
-  const [metrics, setMetrics] = useState<any>(null)
-  const [coeffs, setCoeffs] = useState<Coeffs>({ alpha: 700, beta: 1500, gamma: 60000, delta: 8000, base: 80000 })
-  const [budget, setBudget] = useState<any>(null)
+    // lightweight polygon draw (no external lib): click to add vertices, dblclick to close
+    let pts: mapboxgl.LngLat[] = [];
+    let isDrawing = false;
 
-  const [contact, setContact] = useState({ name:'', email:'', crm:'' })
-
-  // Build draw layer
-  const layers = useMemo(() => {
-    return [
-      new EditableGeoJsonLayer({
-        id: 'draw-layer',
-        data: workingFc,
-        mode: drawMode === 'draw' ? DrawPolygonMode : ModifyMode,
-        selectedFeatureIndexes: [0],
-        onEdit: ({ updatedData }: any) => {
-          setErrorMsg(null)
-          setBudget(null)
-          setMetrics(null)
-          setConfirmedPoly(null) // any edit invalidates confirmation
-          setWorkingFc(updatedData)
-        },
-        getLineColor: [243, 113, 41],
-        getFillColor: [243, 113, 41, 40],
-        getPointRadius: 8
-      })
-    ]
-  }, [workingFc, drawMode])
-
-  // Confirm polygon: ensure we have exactly 1 polygon with >= 3 vertices
-  const confirmPolygon = useCallback(() => {
-    const f = workingFc?.features?.[0]
-    const geom = f?.geometry
-    if (!geom || geom.type !== 'Polygon') {
-      setErrorMsg('Please draw a closed polygon before confirming.')
-      return
-    }
-    const ring = geom.coordinates?.[0]
-    if (!Array.isArray(ring) || ring.length < 4) {
-      setErrorMsg('Polygon needs at least 3 vertices.')
-      return
-    }
-    setErrorMsg(null)
-    setConfirmedPoly(geom)
-    setDrawMode('modify') // allow refine post-confirm
-  }, [workingFc])
-
-  // Fetch estimate only when user clicks
-  const fetchEstimate = useCallback(async () => {
-    if (!PLACES || !SEGS || !BLDGS) {
-      setErrorMsg('Missing table configuration. Check env vars for VITE_PLACES_TABLE, VITE_SEGMENTS_TABLE, VITE_BUILDINGS_TABLE.')
-      return
-    }
-    if (!confirmedPoly) {
-      setErrorMsg('Confirm your polygon first.')
-      return
+    function redraw() {
+      if (!map.getSource('poly')) {
+        map.addSource('poly', { type: 'geojson', data: emptyFC() });
+        map.addLayer({
+          id: 'poly-line',
+          type: 'line',
+          source: 'poly',
+          paint: { 'line-color': '#0ea5e9', 'line-width': 3 }
+        });
+        map.addLayer({
+          id: 'poly-fill',
+          type: 'fill',
+          source: 'poly',
+          paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.1 }
+        });
+      }
+      const data = pts.length >= 3 ? polygonFC(pts) : emptyFC();
+      (map.getSource('poly') as mapboxgl.GeoJSONSource).setData(data);
     }
 
-    const gj = JSON.stringify({ type: 'Feature', geometry: confirmedPoly })
-    const sql = `
-DECLARE p GEOGRAPHY DEFAULT ST_GEOGFROMGEOJSON('${gj}');
-WITH metrics AS (
-  SELECT
-    (SELECT COUNT(*) FROM \`${PLACES}\`
-      WHERE ST_INTERSECTS(geometry, p)
-      AND (categories.primary IN ("restaurant","retail","cafe","shop","services"))) AS businesses,
-    (SELECT COUNT(*) FROM (
-      WITH segs AS (
-        SELECT geometry FROM \`${SEGS}\`
-        WHERE subtype='road' AND ST_INTERSECTS(geometry, p)
-      ),
-      endpoints AS (
-        SELECT ST_STARTPOINT(geometry) AS node FROM segs
-        UNION ALL SELECT ST_ENDPOINT(geometry) AS node FROM segs
-      ),
-      nodes AS (SELECT ST_SNAPTOGRID(node, 1e-6) AS node FROM endpoints),
-      counts AS (SELECT node, COUNT(*) AS deg FROM nodes GROUP BY node)
-      SELECT * FROM counts WHERE deg >= 3
-    )) AS intersections,
-    ST_AREA(p)/1e6 AS area_km2,
-    (SELECT COALESCE(SUM(ST_AREA(geometry))/10000.0, 0) FROM \`${BLDGS}\`
-      WHERE ST_INTERSECTS(geometry, p)) AS gfa_10k_m2
-)
-SELECT * FROM metrics;`
+    function onClick(e: mapboxgl.MapMouseEvent & mapboxgl.EventData) {
+      if (!isDrawing) {
+        isDrawing = true;
+        pts = [];
+      }
+      pts.push(e.lngLat);
+      redraw();
+    }
 
+    function onDblClick() {
+      if (pts.length >= 3) {
+        const fc = polygonFC(pts);
+        setPolygon(fc);
+      }
+      isDrawing = false;
+    }
+
+    map.on('click', onClick);
+    map.on('dblclick', onDblClick);
+    map.on('load', redraw);
+
+    return () => {
+      map.off('click', onClick);
+      map.off('dblclick', onDblClick);
+      map.remove();
+    };
+  }, []);
+
+  async function fetchPlaces() {
+    if (!polygon) return;
     try {
-      setLoading(true)
-      setErrorMsg(null)
-      const res = await cartoQuery(sql)
-      const row = res?.rows?.[0] || {}
-      setMetrics(row)
-      const likely = Math.round(
-        coeffs.base +
-        coeffs.alpha * (row.businesses || 0) +
-        coeffs.beta * (row.intersections || 0) +
-        coeffs.gamma * (row.area_km2 || 0) +
-        coeffs.delta * (row.gfa_10k_m2 || 0)
-      )
-      setBudget({ likely, low: Math.round(likely * 0.8), high: Math.round(likely * 1.2) })
-    } catch (e: any) {
-      setErrorMsg(e?.message || String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [confirmedPoly, coeffs, PLACES, SEGS, BLDGS])
+      setLoading(true);
+      setError(null);
 
-  const clearAll = () => {
-    setWorkingFc({ type: 'FeatureCollection', features: [] })
-    setConfirmedPoly(null)
-    setMetrics(null)
-    setBudget(null)
-    setErrorMsg(null)
-    setDrawMode('draw')
+      const sql = placesWithinPolygonSQL();
+      const r = await fetch('/api/sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          q: sql,
+          params: { polygon_geojson: JSON.stringify(polygon.features[0].geometry) }
+        })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error || 'Query failed');
+
+      const fc: FeatureCollection = data.geojson ?? { type: 'FeatureCollection', features: [] };
+      addPlacesLayer(fc);
+      setPlaceCount(fc.features.length);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function addPlacesLayer(fc: FeatureCollection) {
+    const map = mapRef.current!;
+    // build categorical match expression
+    const matchExp: any[] = ['match', ['coalesce', ['downcase', ['get', 'category']], 'other']];
+    Object.entries(CATEGORY_COLORS).forEach(([cat, hex]) => {
+      matchExp.push(cat, hex);
+    });
+    matchExp.push(CATEGORY_COLORS.other);
+
+    // source
+    if (!map.getSource('places')) {
+      map.addSource('places', { type: 'geojson', data: fc });
+      map.addLayer({
+        id: 'places-circles',
+        type: 'circle',
+        source: 'places',
+        paint: {
+          'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            6, 2,
+            10, 4,
+            14, 6
+          ],
+          'circle-color': matchExp,
+          'circle-opacity': 0.85,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 0.5
+        }
+      });
+    } else {
+      (map.getSource('places') as mapboxgl.GeoJSONSource).setData(fc);
+    }
+  }
+
+  function clearAll() {
+    const map = mapRef.current!;
+    if (map.getSource('places')) {
+      map.removeLayer('places-circles');
+      map.removeSource('places');
+    }
+    if (map.getSource('poly')) {
+      (map.getSource('poly') as mapboxgl.GeoJSONSource).setData(emptyFC());
+    }
+    setPolygon(null);
+    setPlaceCount(null);
+    setError(null);
   }
 
   return (
-    <div style={{ height: '100%' }}>
-      <DeckGL initialViewState={INITIAL_VIEW_STATE} controller={true} layers={layers}>
-        <Map reuseMaps mapboxAccessToken={MAPBOX_TOKEN} mapStyle={MAPBOX_STYLE} />
-      </DeckGL>
+    <div className="app" style={{ height: '100vh', width: '100vw' }}>
+      <div id="map" style={{ height: '100%', width: '100%' }} />
+      <div style={panelStyle}>
+        <h2>Place Management Budget Estimator</h2>
+        <p>Click to add polygon vertices, double‑click to close the polygon.</p>
 
-      <div className="panel">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <strong>Place Management Budget Estimator</strong>
-          <div>
-            <button onClick={() => setDrawMode('draw')} disabled={drawMode==='draw'}>Draw</button>
-            <button onClick={() => setDrawMode('modify')} disabled={drawMode==='modify'} style={{marginLeft:6}}>Refine</button>
-            <button onClick={clearAll} style={{marginLeft:6}}>Clear</button>
-          </div>
-        </div>
-
-        {!confirmedPoly ? (
+        {polygon ? (
           <>
-            <div style={{ marginTop: 8 }}>
-              Draw your area. When you’re happy, click <b>Confirm polygon</b>. You can still refine after confirming.
-            </div>
-            <button style={{ marginTop: 8 }} onClick={confirmPolygon} disabled={workingFc?.features?.length === 0}>
-              Confirm polygon
-            </button>
+            <button disabled={loading} onClick={fetchPlaces}>Confirm selection &amp; fetch Places</button>
+            <button onClick={clearAll} style={{ marginLeft: 8 }}>Clear</button>
           </>
         ) : (
-          <div className="row" style={{ marginTop: 8, gap: 8 }}>
-            <span>Polygon confirmed.</span>
-            <button onClick={fetchEstimate} disabled={loading}>{loading ? 'Fetching…' : 'Fetch estimate'}</button>
-          </div>
+          <em>Draw a polygon to begin…</em>
         )}
 
-        {errorMsg && <div style={{ color: '#b00', whiteSpace: 'pre-wrap', marginTop: 8 }}>Error: {errorMsg}</div>}
+        {loading && <p>Fetching…</p>}
+        {error && <p style={{ color: 'crimson' }}>Error: {error}</p>}
+        {placeCount !== null && <p><strong>{placeCount.toLocaleString()}</strong> places found.</p>}
 
-        {metrics && budget && (
-          <>
-            <div className="kpis" style={{ marginTop: 10 }}>
-              <div className="kpi"><div>Businesses</div><strong>{metrics.businesses}</strong></div>
-              <div className="kpi"><div>Intersections</div><strong>{metrics.intersections}</strong></div>
-              <div className="kpi"><div>Area (km²)</div><strong>{Number(metrics.area_km2).toFixed(3)}</strong></div>
-              <div className="kpi"><div>GFA (×10k m²)</div><strong>{Number(metrics.gfa_10k_m2).toFixed(1)}</strong></div>
-            </div>
-            <div className="kpis" style={{ marginTop: 8 }}>
-              <div className="kpi"><div>Likely</div><strong>${budget.likely?.toLocaleString?.() ?? '—'}</strong></div>
-              <div className="kpi"><div>Range</div><strong>{`$${budget.low.toLocaleString()}–$${budget.high.toLocaleString()}`}</strong></div>
-            </div>
-          </>
-        )}
-
-        <details style={{ marginTop: 10 }}>
-          <summary>Advanced (coefficients)</summary>
-          <div className="kpis" style={{ marginTop: 8 }}>
-            <label className="kpi">α per business<br />
-              <input type="number" value={coeffs.alpha} onChange={e => setCoeffs({ ...coeffs, alpha: Number(e.target.value) })} />
-            </label>
-            <label className="kpi">β per intersection<br />
-              <input type="number" value={coeffs.beta} onChange={e => setCoeffs({ ...coeffs, beta: Number(e.target.value) })} />
-            </label>
-            <label className="kpi">γ per km²<br />
-              <input type="number" value={coeffs.gamma} onChange={e => setCoeffs({ ...coeffs, gamma: Number(e.target.value) })} />
-            </label>
-            <label className="kpi">δ per 10k m²<br />
-              <input type="number" value={coeffs.delta} onChange={e => setCoeffs({ ...coeffs, delta: Number(e.target.value) })} />
-            </label>
-            <label className="kpi">Base<br />
-              <input type="number" value={coeffs.base} onChange={e => setCoeffs({ ...coeffs, base: Number(e.target.value) })} />
-            </label>
-          </div>
-        </details>
-
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>© Map data © Mapbox & OpenStreetMap contributors</div>
+        <Legend />
       </div>
     </div>
-  )
+  );
 }
+
+function emptyFC(): FeatureCollection {
+  return { type: 'FeatureCollection', features: [] };
+}
+
+function polygonFC(pts: mapboxgl.LngLat[]): FeatureCollection {
+  const ring = [...pts.map(p => [p.lng, p.lat]), [pts[0].lng, pts[0].lat]];
+  return {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } as any }
+    ]
+  };
+}
+
+function Legend() {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <strong>Legend</strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, marginTop: 6 }}>
+        {Object.entries(CATEGORY_COLORS).map(([k, color]) => (
+          <React.Fragment key={k}>
+            <span style={{ width: 12, height: 12, background: color, borderRadius: 999 }} />
+            <span style={{ textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const panelStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 16,
+  left: 16,
+  background: 'rgba(255,255,255,0.95)',
+  padding: 12,
+  borderRadius: 8,
+  maxWidth: 360,
+  boxShadow: '0 2px 10px rgba(0,0,0,0.15)'
+};
