@@ -39,54 +39,248 @@ export default function Root() {
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     mapRef.current = map;
 
-    // lightweight polygon draw (no external lib): click to add vertices, dblclick to close
+    // Enhanced polygon drawing with better UX
     let pts: mapboxgl.LngLat[] = [];
     let isDrawing = false;
 
-    function redraw() {
-      if (!map.getSource("poly")) {
-        map.addSource("poly", { type: "geojson", data: emptyFC() });
+    function setupDrawingLayers() {
+      // Drawing polygon layer
+      if (!map.getSource("drawing-poly")) {
+        map.addSource("drawing-poly", { type: "geojson", data: emptyFC() });
         map.addLayer({
-          id: "poly-line",
-          type: "line",
-          source: "poly",
-          paint: { "line-color": "#0ea5e9", "line-width": 3 },
-        });
-        map.addLayer({
-          id: "poly-fill",
+          id: "drawing-poly-fill",
           type: "fill",
-          source: "poly",
+          source: "drawing-poly",
           paint: { "fill-color": "#0ea5e9", "fill-opacity": 0.1 },
         });
+        map.addLayer({
+          id: "drawing-poly-line",
+          type: "line",
+          source: "drawing-poly",
+          paint: { "line-color": "#0ea5e9", "line-width": 3 },
+        });
       }
-      const data = pts.length >= 3 ? polygonFC(pts) : emptyFC();
-      (map.getSource("poly") as mapboxgl.GeoJSONSource).setData(data);
+
+      // Drawing points layer
+      if (!map.getSource("drawing-points")) {
+        map.addSource("drawing-points", { type: "geojson", data: emptyFC() });
+        map.addLayer({
+          id: "drawing-points",
+          type: "circle",
+          source: "drawing-points",
+          paint: {
+            "circle-radius": [
+              "case",
+              ["==", ["get", "isFirst"], true], 8, // First point larger
+              6, // Other points
+            ],
+            "circle-color": [
+              "case",
+              ["==", ["get", "isFirst"], true], "#059669", // First point green
+              "#0ea5e9", // Other points blue
+            ],
+            "circle-stroke-width": 2,
+            "circle-stroke-color": "#ffffff",
+          },
+        });
+      }
+
+      // Hover effect for first point when polygon can be closed
+      if (!map.getSource("first-point-hover")) {
+        map.addSource("first-point-hover", { type: "geojson", data: emptyFC() });
+        map.addLayer({
+          id: "first-point-hover",
+          type: "circle",
+          source: "first-point-hover",
+          paint: {
+            "circle-radius": 12,
+            "circle-color": "#059669",
+            "circle-opacity": 0.3,
+          },
+        });
+      }
+    }
+
+    function updateDrawing() {
+      setupDrawingLayers();
+
+      // Update points
+      const pointFeatures = pts.map((pt, index) => ({
+        type: "Feature" as const,
+        properties: {
+          isFirst: index === 0,
+          index,
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: [pt.lng, pt.lat],
+        },
+      }));
+
+      (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData({
+        type: "FeatureCollection",
+        features: pointFeatures,
+      });
+
+      // Update polygon/line
+      if (pts.length >= 3) {
+        // Show closed polygon
+        const data = polygonFC(pts);
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(data);
+      } else if (pts.length === 2) {
+        // Show line between two points
+        const lineData = {
+          type: "FeatureCollection" as const,
+          features: [
+            {
+              type: "Feature" as const,
+              properties: {},
+              geometry: {
+                type: "LineString" as const,
+                coordinates: pts.map((p) => [p.lng, p.lat]),
+              },
+            },
+          ],
+        };
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(lineData);
+      } else {
+        // Clear polygon/line
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      }
+    }
+
+    function isClickOnFirstPoint(clickPoint: mapboxgl.LngLat): boolean {
+      if (pts.length < 3) return false;
+      const firstPoint = pts[0];
+      
+      // Use screen pixel distance instead of geographic distance for consistent UX
+      const firstPointScreen = map.project(firstPoint);
+      const clickPointScreen = map.project(clickPoint);
+      
+      const pixelDistance = Math.sqrt(
+        Math.pow(firstPointScreen.x - clickPointScreen.x, 2) +
+          Math.pow(firstPointScreen.y - clickPointScreen.y, 2)
+      );
+      
+      // Much more generous: 25 pixel radius
+      return pixelDistance < 25;
+    }
+
+    function clearDrawing() {
+      if (!isDrawing) return;
+      
+      isDrawing = false;
+      pts = [];
+      map.getCanvas().style.cursor = "";
+      
+      // Clear all drawing layers
+      if (map.getSource("drawing-poly")) {
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      }
+      if (map.getSource("drawing-points")) {
+        (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      }
+      if (map.getSource("first-point-hover")) {
+        (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      }
     }
 
     function onClick(e: mapboxgl.MapMouseEvent & mapboxgl.EventData) {
       if (!isDrawing) {
+        // Start drawing
         isDrawing = true;
         pts = [];
+        pts.push(e.lngLat);
+        updateDrawing();
+        map.getCanvas().style.cursor = "crosshair";
+        return;
       }
+
+      // Check if clicking on first point to close polygon
+      if (isClickOnFirstPoint(e.lngLat)) {
+        if (pts.length >= 3) {
+          // Close the polygon
+          const fc = polygonFC(pts);
+          setPolygon(fc);
+          isDrawing = false;
+          map.getCanvas().style.cursor = "";
+          // Clear drawing layers
+          (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(
+            emptyFC()
+          );
+        }
+        return;
+      }
+
+      // Add new point
       pts.push(e.lngLat);
-      redraw();
+      updateDrawing();
     }
 
-    function onDblClick() {
-      if (pts.length >= 3) {
-        const fc = polygonFC(pts);
-        setPolygon(fc);
+    function onMouseMove(e: mapboxgl.MapMouseEvent) {
+      if (!isDrawing || pts.length < 3) return;
+
+      // Show hover effect on first point when polygon can be closed
+      if (isClickOnFirstPoint(e.lngLat)) {
+        map.getCanvas().style.cursor = "pointer";
+        (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Point",
+                coordinates: [pts[0].lng, pts[0].lat],
+              },
+            },
+          ],
+        });
+      } else {
+        map.getCanvas().style.cursor = "crosshair";
+        (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(
+          emptyFC()
+        );
       }
-      isDrawing = false;
+    }
+
+    // Prevent double-click zoom when drawing
+    function onDblClick(e: mapboxgl.MapMouseEvent & mapboxgl.EventData) {
+      if (isDrawing) {
+        e.preventDefault();
+      }
+    }
+
+    // Right-click to clear drawing
+    function onContextMenu(e: mapboxgl.MapMouseEvent & mapboxgl.EventData) {
+      if (isDrawing) {
+        e.preventDefault();
+        clearDrawing();
+      }
+    }
+
+    // Escape key to clear drawing
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isDrawing) {
+        clearDrawing();
+      }
     }
 
     map.on("click", onClick);
+    map.on("mousemove", onMouseMove);
     map.on("dblclick", onDblClick);
-    map.on("load", redraw);
+    map.on("contextmenu", onContextMenu);
+    map.on("load", setupDrawingLayers);
+    
+    // Add keyboard listener to document
+    document.addEventListener("keydown", onKeyDown);
 
     return () => {
       map.off("click", onClick);
+      map.off("mousemove", onMouseMove);
       map.off("dblclick", onDblClick);
+      map.off("contextmenu", onContextMenu);
+      document.removeEventListener("keydown", onKeyDown);
       map.remove();
     };
   }, []);
@@ -203,13 +397,27 @@ export default function Root() {
 
   function clearAll() {
     const map = mapRef.current!;
+    
+    // Clear places results
     if (map.getSource("places")) {
       map.removeLayer("places-circles");
       map.removeSource("places");
     }
-    if (map.getSource("poly")) {
-      (map.getSource("poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+    
+    // Clear drawing layers
+    if (map.getSource("drawing-poly")) {
+      (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
     }
+    if (map.getSource("drawing-points")) {
+      (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(emptyFC());
+    }
+    if (map.getSource("first-point-hover")) {
+      (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(emptyFC());
+    }
+    
+    // Reset cursor
+    map.getCanvas().style.cursor = "";
+    
     setPolygon(null);
     setPlaceCount(null);
     setError(null);
@@ -220,7 +428,7 @@ export default function Root() {
       <div id="map" style={{ height: "100%", width: "100%" }} />
       <div style={panelStyle}>
         <h2>Place Management Budget Estimator</h2>
-        <p>Click to add polygon vertices, double‑click to close the polygon.</p>
+        <p>Click to add vertices. Click the first point (green) to close. Right-click or press Escape to cancel.</p>
 
         {polygon ? (
           <>
