@@ -22,8 +22,14 @@ export async function handler(event) {
     if (!sa) {
       return { statusCode: 500, body: JSON.stringify({ error: 'Missing GOOGLE_SERVICE_ACCOUNT_JSON' }) };
     }
-
-    const credentials = JSON.parse(sa);
+    
+    let credentials;
+    try {
+      credentials = JSON.parse(sa);
+    } catch (parseError) {
+      return { statusCode: 500, body: JSON.stringify({ error: 'Invalid service account JSON format' }) };
+    }
+    
     const bigquery = new BigQuery({
       projectId: process.env.GCP_PROJECT_ID,
       credentials
@@ -33,14 +39,13 @@ export async function handler(event) {
     const bqParams = [];
     const paramTypes = [];
     for (const [name, value] of Object.entries(params)) {
-      // Simple mapper: detect GeoJSON polygon -> GEOGRAPHY param, else string/number.
-      if (name === 'polygon_geojson') {
-        bqParams.push({ name, parameterType: { type: 'GEOGRAPHY' }, parameterValue: { value } });
-        paramTypes.push({ name, type: 'GEOGRAPHY' });
-      } else if (typeof value === 'number') {
+      // GeoJSON should be passed as STRING to ST_GEOGFROMGEOJSON
+      // BigQuery will convert it to GEOGRAPHY internally
+      if (typeof value === 'number') {
         bqParams.push({ name, parameterType: { type: Number.isInteger(value) ? 'INT64' : 'FLOAT64' }, parameterValue: { value: String(value) } });
         paramTypes.push({ name, type: Number.isInteger(value) ? 'INT64' : 'FLOAT64' });
       } else {
+        // All string parameters including polygon_geojson
         bqParams.push({ name, parameterType: { type: 'STRING' }, parameterValue: { value: String(value) } });
         paramTypes.push({ name, type: 'STRING' });
       }
