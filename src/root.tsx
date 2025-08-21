@@ -71,12 +71,14 @@ export default function Root() {
           paint: {
             "circle-radius": [
               "case",
-              ["==", ["get", "isFirst"], true], 8, // First point larger
+              ["==", ["get", "isFirst"], true],
+              8, // First point larger
               6, // Other points
             ],
             "circle-color": [
               "case",
-              ["==", ["get", "isFirst"], true], "#059669", // First point green
+              ["==", ["get", "isFirst"], true],
+              "#059669", // First point green
               "#0ea5e9", // Other points blue
             ],
             "circle-stroke-width": 2,
@@ -87,7 +89,10 @@ export default function Root() {
 
       // Hover effect for first point when polygon can be closed
       if (!map.getSource("first-point-hover")) {
-        map.addSource("first-point-hover", { type: "geojson", data: emptyFC() });
+        map.addSource("first-point-hover", {
+          type: "geojson",
+          data: emptyFC(),
+        });
         map.addLayer({
           id: "first-point-hover",
           type: "circle",
@@ -142,46 +147,56 @@ export default function Root() {
             },
           ],
         };
-        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(lineData);
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(
+          lineData
+        );
       } else {
         // Clear polygon/line
-        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(
+          emptyFC()
+        );
       }
     }
 
     function isClickOnFirstPoint(clickPoint: mapboxgl.LngLat): boolean {
       if (pts.length < 3) return false;
       const firstPoint = pts[0];
-      
+
       // Use screen pixel distance instead of geographic distance for consistent UX
       const firstPointScreen = map.project(firstPoint);
       const clickPointScreen = map.project(clickPoint);
-      
+
       const pixelDistance = Math.sqrt(
         Math.pow(firstPointScreen.x - clickPointScreen.x, 2) +
           Math.pow(firstPointScreen.y - clickPointScreen.y, 2)
       );
-      
+
       // Much more generous: 25 pixel radius
       return pixelDistance < 25;
     }
 
     function clearDrawing() {
       if (!isDrawing) return;
-      
+
       isDrawing = false;
       pts = [];
       map.getCanvas().style.cursor = "";
-      
+
       // Clear all drawing layers
       if (map.getSource("drawing-poly")) {
-        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+        (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(
+          emptyFC()
+        );
       }
       if (map.getSource("drawing-points")) {
-        (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(emptyFC());
+        (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(
+          emptyFC()
+        );
       }
       if (map.getSource("first-point-hover")) {
-        (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(emptyFC());
+        (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(
+          emptyFC()
+        );
       }
     }
 
@@ -205,9 +220,9 @@ export default function Root() {
           isDrawing = false;
           map.getCanvas().style.cursor = "";
           // Clear drawing layers
-          (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(
-            emptyFC()
-          );
+          (
+            map.getSource("first-point-hover") as mapboxgl.GeoJSONSource
+          ).setData(emptyFC());
         }
         return;
       }
@@ -261,7 +276,7 @@ export default function Root() {
 
     // Escape key to clear drawing
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isDrawing) {
+      if (e.key === "Escape" && isDrawing) {
         clearDrawing();
       }
     }
@@ -271,7 +286,7 @@ export default function Root() {
     map.on("dblclick", onDblClick);
     map.on("contextmenu", onContextMenu);
     map.on("load", setupDrawingLayers);
-    
+
     // Add keyboard listener to document
     document.addEventListener("keydown", onKeyDown);
 
@@ -293,15 +308,17 @@ export default function Root() {
 
       // Use the SQL proxy endpoint with the proper query
       const placesTable =
-        import.meta.env.VITE_PLACES_TABLE || "overture_na.place";
+        import.meta.env.VITE_PLACES_TABLE || "overture_na.place_view";
+
+      // Updated query to match the place_view schema
       const sql = `
         WITH poly AS (
           SELECT ST_GEOGFROMGEOJSON(@polygon_geojson) AS g
         )
         SELECT
-          id,
-          categories[SAFE_OFFSET(0)] AS category,
-          names.primary AS name,
+          place_id AS id,
+          category,
+          name,
           ST_X(geometry) AS lng,
           ST_Y(geometry) AS lat
         FROM \`${placesTable}\`, poly
@@ -397,27 +414,33 @@ export default function Root() {
 
   function clearAll() {
     const map = mapRef.current!;
-    
+
     // Clear places results
     if (map.getSource("places")) {
       map.removeLayer("places-circles");
       map.removeSource("places");
     }
-    
+
     // Clear drawing layers
     if (map.getSource("drawing-poly")) {
-      (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      (map.getSource("drawing-poly") as mapboxgl.GeoJSONSource).setData(
+        emptyFC()
+      );
     }
     if (map.getSource("drawing-points")) {
-      (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      (map.getSource("drawing-points") as mapboxgl.GeoJSONSource).setData(
+        emptyFC()
+      );
     }
     if (map.getSource("first-point-hover")) {
-      (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(emptyFC());
+      (map.getSource("first-point-hover") as mapboxgl.GeoJSONSource).setData(
+        emptyFC()
+      );
     }
-    
+
     // Reset cursor
     map.getCanvas().style.cursor = "";
-    
+
     setPolygon(null);
     setPlaceCount(null);
     setError(null);
@@ -428,7 +451,10 @@ export default function Root() {
       <div id="map" style={{ height: "100%", width: "100%" }} />
       <div style={panelStyle}>
         <h2>Place Management Budget Estimator</h2>
-        <p>Click to add vertices. Click the first point (green) to close. Right-click or press Escape to cancel.</p>
+        <p>
+          Click to add vertices. Click the first point (green) to close.
+          Right-click or press Escape to cancel.
+        </p>
 
         {polygon ? (
           <>
