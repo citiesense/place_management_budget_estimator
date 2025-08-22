@@ -6,6 +6,7 @@ import {
   determinePlaceTypology,
   getServiceDemandIndicators
 } from '../utils/budgetCalculations';
+import { generateBIDReportPDF, generatePDFForEmail } from '../utils/pdfExport';
 
 interface EnhancedReportPanelProps {
   data: any;
@@ -41,40 +42,82 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
     setParams(prev => ({ ...prev, [key]: value }));
   };
   
-  // Export to PDF placeholder
+  // Export to PDF
   const exportToPDF = () => {
-    // TODO: Implement PDF export
-    alert('PDF export will be implemented with jsPDF library');
+    generateBIDReportPDF({
+      data,
+      budget,
+      placeTypology,
+      serviceDemands,
+      params
+    });
   };
   
-  // Export to CSV
-  const exportToCSV = () => {
-    const csvData = [
-      ['Metric', 'Value'],
-      ['Total Businesses', data.totalPlaces],
-      ['Area (acres)', data.areaAcres.toFixed(2)],
-      ['Density (per acre)', (data.totalPlaces / data.areaAcres).toFixed(1)],
-      ['Place Typology', placeTypology],
-      ['', ''],
-      ['Budget Component', 'Annual Cost'],
-      ['Cleaning', `$${budget.cleaning.toLocaleString()}`],
-      ['Safety/Hospitality', `$${budget.safety.toLocaleString()}`],
-      ['Streetscape Assets', `$${budget.assets.toLocaleString()}`],
-      ['Marketing', `$${budget.marketing.toLocaleString()}`],
-      ['Admin Overhead', `$${budget.adminOverhead.toLocaleString()}`],
-      ['Total Annual Budget', `$${budget.total.toLocaleString()}`],
-      ['', ''],
-      ['Cost per Business', `$${budget.costPerBusiness.toLocaleString()}`],
-      ['Cost per Acre', `$${budget.costPerAcre.toLocaleString()}`],
-    ];
+  // Share via email
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [emailList, setEmailList] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  
+  const handleShareReport = async () => {
+    if (!emailList.trim()) {
+      alert('Please enter at least one email address');
+      return;
+    }
     
-    const csv = csvData.map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bid-budget-report-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    // Validate email format (basic validation)
+    const emails = emailList.split(',').map(email => email.trim()).filter(email => email);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalidEmails = emails.filter(email => !emailRegex.test(email));
+    
+    if (invalidEmails.length > 0) {
+      alert(`Invalid email addresses: ${invalidEmails.join(', ')}`);
+      return;
+    }
+    
+    setShareLoading(true);
+    
+    try {
+      // Generate PDF data as base64
+      const pdfResponse = await generatePDFForEmail({
+        data,
+        budget,
+        placeTypology,
+        serviceDemands,
+        params
+      });
+      
+      // Send email via Netlify function
+      const response = await fetch('/.netlify/functions/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          emails: emails,
+          reportData: {
+            placeTypology,
+            totalPlaces: data.totalPlaces,
+            areaAcres: data.areaAcres.toFixed(1),
+            totalBudget: budget.total
+          },
+          pdfData: pdfResponse.base64
+        }),
+      });
+      
+      if (response.ok) {
+        alert(`Report successfully sent to ${emails.length} recipient${emails.length > 1 ? 's' : ''}!`);
+        setShowShareModal(false);
+        setEmailList('');
+      } else {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to send email');
+      }
+    } catch (error) {
+      console.error('Error sharing report:', error);
+      alert('Failed to send report. Please try again.');
+    } finally {
+      setShareLoading(false);
+    }
   };
   
   const panelStyle: React.CSSProperties = {
@@ -142,7 +185,7 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
             📄 Export PDF
           </button>
           <button
-            onClick={exportToCSV}
+            onClick={() => setShowShareModal(true)}
             style={{
               padding: '0.5rem 1rem',
               backgroundColor: '#059669',
@@ -153,7 +196,7 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
               fontSize: '0.9rem'
             }}
           >
-            📊 Export CSV
+            📧 Share Report
           </button>
           <button
             onClick={onClose}
@@ -227,6 +270,157 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
           />
         )}
       </div>
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '2rem',
+            maxWidth: '500px',
+            width: '90%',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
+          }}>
+            <h3 style={{ marginTop: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              📧 Share BID Report
+            </h3>
+            <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
+              Enter email addresses (separated by commas) to share this budget report as a PDF attachment.
+            </p>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ 
+                display: 'block', 
+                marginBottom: '0.5rem', 
+                fontWeight: 600, 
+                color: '#374151' 
+              }}>
+                Email Recipients:
+              </label>
+              <textarea
+                value={emailList}
+                onChange={(e) => setEmailList(e.target.value)}
+                placeholder="john@company.com, mary@board.org, planning@city.gov"
+                style={{
+                  width: '100%',
+                  minHeight: '80px',
+                  padding: '0.75rem',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '6px',
+                  fontSize: '0.9rem',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                  outline: 'none',
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#0ea5e9'}
+                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+              />
+              <div style={{ 
+                fontSize: '0.8rem', 
+                color: '#6b7280', 
+                marginTop: '0.5rem' 
+              }}>
+                Tip: Separate multiple email addresses with commas
+              </div>
+            </div>
+            
+            <div style={{ 
+              backgroundColor: '#f8fafc', 
+              padding: '1rem', 
+              borderRadius: '6px', 
+              marginBottom: '1.5rem' 
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: '#374151' }}>
+                Report Summary:
+              </h4>
+              <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>
+                <div>• {placeTypology} with {data.totalPlaces} businesses</div>
+                <div>• {data.areaAcres.toFixed(1)} acres coverage area</div>
+                <div>• ${budget.total.toLocaleString()} annual budget estimate</div>
+              </div>
+            </div>
+            
+            <div style={{ 
+              display: 'flex', 
+              gap: '1rem', 
+              justifyContent: 'flex-end' 
+            }}>
+              <button
+                onClick={() => {
+                  setShowShareModal(false);
+                  setEmailList('');
+                }}
+                disabled={shareLoading}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: '#f1f5f9',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  cursor: shareLoading ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  opacity: shareLoading ? 0.5 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleShareReport}
+                disabled={shareLoading || !emailList.trim()}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: shareLoading ? '#94a3b8' : '#059669',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: shareLoading || !emailList.trim() ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {shareLoading ? (
+                  <>
+                    <div style={{
+                      width: '16px',
+                      height: '16px',
+                      border: '2px solid transparent',
+                      borderTop: '2px solid white',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Sending...
+                  </>
+                ) : (
+                  <>📤 Send Report</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
     </div>
   );
 }
