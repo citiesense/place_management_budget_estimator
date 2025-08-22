@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { FeatureCollection } from "geojson";
+import { EnhancedReportPanel } from "./components/EnhancedReportPanel";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
@@ -26,6 +27,8 @@ export default function Root() {
   const [loading, setLoading] = useState(false);
   const [placeCount, setPlaceCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reportData, setReportData] = useState<any>(null);
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -310,20 +313,46 @@ export default function Root() {
       const placesTable =
         import.meta.env.VITE_PLACES_TABLE || "overture_na.place_view";
 
-      // Updated query to match the place_view schema
+      // Enhanced query to get both individual places and aggregated data for reports
       const sql = `
         WITH poly AS (
           SELECT ST_GEOGFROMGEOJSON(@polygon_geojson) AS g
+        ),
+        places_in_poly AS (
+          SELECT
+            place_id AS id,
+            category,
+            name,
+            ST_X(geometry) AS lng,
+            ST_Y(geometry) AS lat,
+            geometry
+          FROM \`${placesTable}\`, poly
+          WHERE ST_INTERSECTS(geometry, poly.g)
+          LIMIT 10000
         )
         SELECT
-          place_id AS id,
+          -- Individual place data
+          id,
           category,
           name,
-          ST_X(geometry) AS lng,
-          ST_Y(geometry) AS lat
-        FROM \`${placesTable}\`, poly
-        WHERE ST_INTERSECTS(geometry, poly.g)
-        LIMIT 10000
+          lng,
+          lat,
+          -- Aggregated metrics for reports
+          COUNT(*) OVER() AS total_places,
+          ST_AREA(poly.g) / 1000000 AS area_km2,
+          ST_AREA(poly.g) / 4046.86 AS area_acres,
+          ST_PERIMETER(poly.g) * 3.28084 AS perimeter_ft,
+          COUNT(*) OVER() / (ST_AREA(poly.g) / 1000000) AS density_per_km2,
+          -- Detailed category counts for new budget model
+          COUNT(*) OVER(PARTITION BY category) AS category_count,
+          COUNT(CASE WHEN LOWER(category) IN ('retail', 'shopping', 'store') THEN 1 END) OVER() AS retail_count,
+          COUNT(CASE WHEN LOWER(category) IN ('restaurant', 'food', 'food_and_drink', 'cafe', 'bar') THEN 1 END) OVER() AS food_count,
+          COUNT(CASE WHEN LOWER(category) IN ('service', 'services', 'professional') THEN 1 END) OVER() AS service_count,
+          COUNT(CASE WHEN LOWER(category) IN ('entertainment', 'recreation', 'leisure', 'nightlife') THEN 1 END) OVER() AS entertainment_count,
+          COUNT(CASE WHEN LOWER(category) IN ('hotel', 'lodging', 'accommodation') THEN 1 END) OVER() AS lodging_count,
+          COUNT(CASE WHEN category IS NULL OR category = '' THEN 1 END) OVER() AS unknown_count
+        FROM places_in_poly, poly
+        ORDER BY category, name
       `;
 
       const r = await fetch(import.meta.env.VITE_SQL_PROXY || "/api/sql", {
@@ -342,8 +371,10 @@ export default function Root() {
       if (!r.ok)
         throw new Error(data?.error || `Query failed with status ${r.status}`);
 
+      const rows = data.rows || [];
+      
       // Convert rows to GeoJSON FeatureCollection
-      const features = (data.rows || []).map((row: any) => ({
+      const features = rows.map((row: any) => ({
         type: "Feature",
         properties: {
           id: row.id,
@@ -360,6 +391,40 @@ export default function Root() {
         type: "FeatureCollection",
         features,
       };
+
+      // Extract aggregated metrics from first row (same across all rows due to window functions)
+      const firstRow = rows[0];
+      if (firstRow) {
+        // Build complete category breakdown from actual data
+        const categoryMap = new Map<string, number>();
+        rows.forEach((row: any) => {
+          if (row.category) {
+            const cat = row.category.toLowerCase();
+            categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
+          }
+        });
+        
+        const metrics = {
+          totalPlaces: firstRow.total_places || 0,
+          areaKm2: firstRow.area_km2 || 0,
+          areaAcres: firstRow.area_acres || 0,
+          perimeterFt: firstRow.perimeter_ft || 0,
+          densityPerKm2: firstRow.density_per_km2 || 0,
+          categoryBreakdown: {
+            retail: firstRow.retail_count || 0,
+            food: firstRow.food_count || 0,
+            restaurant: firstRow.food_count || 0, // Alias for compatibility
+            service: firstRow.service_count || 0,
+            entertainment: firstRow.entertainment_count || 0,
+            lodging: firstRow.lodging_count || 0,
+            unknown: firstRow.unknown_count || 0,
+            // Add any other categories found
+            ...Object.fromEntries(categoryMap)
+          },
+          places: features, // Store individual places for detailed analysis
+        };
+        setReportData(metrics);
+      }
 
       addPlacesLayer(fc);
       setPlaceCount(fc.features.length);
@@ -444,11 +509,20 @@ export default function Root() {
     setPolygon(null);
     setPlaceCount(null);
     setError(null);
+    setReportData(null);
+    setShowReport(false);
   }
 
   return (
-    <div className="app" style={{ height: "100vh", width: "100vw" }}>
-      <div id="map" style={{ height: "100%", width: "100%" }} />
+    <div className="app" style={{ height: "100vh", width: "100vw", position: "relative" }}>
+      <div 
+        id="map" 
+        style={{ 
+          height: "100%", 
+          width: showReport ? "40%" : "100%",
+          transition: "width 0.3s ease"
+        }} 
+      />
       <div style={panelStyle}>
         <h2>Place Management Budget Estimator</h2>
         <p>
@@ -477,11 +551,38 @@ export default function Root() {
           </p>
         )}
 
+        {reportData && (
+          <button 
+            onClick={() => setShowReport(true)} 
+            style={{ 
+              marginTop: 8,
+              backgroundColor: '#059669',
+              color: 'white',
+              border: 'none',
+              padding: '8px 16px',
+              borderRadius: 4,
+              cursor: 'pointer'
+            }}
+          >
+            📊 View Report
+          </button>
+        )}
+
         <Legend />
       </div>
+
+      {/* Enhanced Sliding Report Panel */}
+      {showReport && reportData && (
+        <EnhancedReportPanel 
+          data={reportData} 
+          onClose={() => setShowReport(false)}
+          mapVisible={true}
+        />
+      )}
     </div>
   );
 }
+
 
 function emptyFC(): FeatureCollection {
   return { type: "FeatureCollection", features: [] };

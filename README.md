@@ -1,6 +1,6 @@
-# Place Management Budget Estimator (CARTO + deck.gl)
+# Place Management Budget Estimator
 
-Estimate a BID/place-management budget from **urban context** (businesses, intersections, area, optional GFA) by drawing a polygon. Uses CARTO v3 SQL API against your BigQuery Overture tables.
+Professional BID budget analysis tool with interactive mapping, industry-standard calculations, and board-ready PDF reports. Draw polygons to analyze business districts and generate comprehensive budget estimates based on Overture Maps data.
 
 ## Local dev
 ```bash
@@ -28,6 +28,30 @@ VITE_SEGMENTS_TABLE=__PUBLIC_TABLE_NAME__
 
 Netlify serves the app from `dist/` and proxies `POST /api/sql` to a serverless function that hits CARTO with your key.
 
-## Notes
-- Intersections are estimated by snapping segment endpoints into nodes and counting degree ≥ 3.
-- Coefficients can be tweaked in the Advanced drawer.
+## Key Features
+
+### 📊 Enhanced Reporting
+- **Executive Summary**: Board-ready metrics and visualizations
+- **Service Details**: Cleaning, safety, marketing, and streetscape breakdowns
+- **Interactive Parameters**: Real-time budget adjustments with sliders
+- **PDF Export**: Professional 2-page reports for board presentations
+- **📧 Email Sharing**: Send reports directly to stakeholders with professional email templates
+
+### 🎯 Industry-Standard Calculations
+- Service intensity modeling based on business mix
+- Category-weighted factors (restaurants need more cleaning, entertainment drives night economy)
+- Streetscape asset depreciation (trash cans, planters, banners)
+- Staffing estimates with supervisor ratios
+- Customizable parameters for local conditions
+
+### 🗺️ Smart District Analysis
+- Automatic place typology detection (Retail Core, Dining District, Mixed-Use, etc.)
+- Service demand indicators based on density and business composition
+- Priority recommendations for resource allocation
+- Economic diversity scoring for resilience assessment
+
+## Development Notes
+- Uses BigQuery spatial queries with Overture Maps data
+- Netlify Functions for secure server-side processing
+- React + TypeScript + Mapbox GL for interactive mapping
+- jsPDF for professional PDF generation
