@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { FeatureCollection } from "geojson";
+import { EnhancedReportPanel } from "./components/EnhancedReportPanel";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
@@ -340,13 +341,15 @@ export default function Root() {
           COUNT(*) OVER() AS total_places,
           ST_AREA(poly.g) / 1000000 AS area_km2,
           ST_AREA(poly.g) / 4046.86 AS area_acres,
+          ST_PERIMETER(poly.g) * 3.28084 AS perimeter_ft,
           COUNT(*) OVER() / (ST_AREA(poly.g) / 1000000) AS density_per_km2,
-          -- Category counts
+          -- Detailed category counts for new budget model
           COUNT(*) OVER(PARTITION BY category) AS category_count,
-          COUNT(CASE WHEN category IN ('retail', 'shopping', 'store') THEN 1 END) OVER() AS retail_count,
-          COUNT(CASE WHEN category IN ('restaurant', 'food', 'food_and_drink', 'cafe') THEN 1 END) OVER() AS food_count,
-          COUNT(CASE WHEN category IN ('service', 'services', 'professional') THEN 1 END) OVER() AS service_count,
-          COUNT(CASE WHEN category IN ('entertainment', 'recreation', 'leisure') THEN 1 END) OVER() AS entertainment_count,
+          COUNT(CASE WHEN LOWER(category) IN ('retail', 'shopping', 'store') THEN 1 END) OVER() AS retail_count,
+          COUNT(CASE WHEN LOWER(category) IN ('restaurant', 'food', 'food_and_drink', 'cafe', 'bar') THEN 1 END) OVER() AS food_count,
+          COUNT(CASE WHEN LOWER(category) IN ('service', 'services', 'professional') THEN 1 END) OVER() AS service_count,
+          COUNT(CASE WHEN LOWER(category) IN ('entertainment', 'recreation', 'leisure', 'nightlife') THEN 1 END) OVER() AS entertainment_count,
+          COUNT(CASE WHEN LOWER(category) IN ('hotel', 'lodging', 'accommodation') THEN 1 END) OVER() AS lodging_count,
           COUNT(CASE WHEN category IS NULL OR category = '' THEN 1 END) OVER() AS unknown_count
         FROM places_in_poly, poly
         ORDER BY category, name
@@ -392,17 +395,31 @@ export default function Root() {
       // Extract aggregated metrics from first row (same across all rows due to window functions)
       const firstRow = rows[0];
       if (firstRow) {
+        // Build complete category breakdown from actual data
+        const categoryMap = new Map<string, number>();
+        rows.forEach((row: any) => {
+          if (row.category) {
+            const cat = row.category.toLowerCase();
+            categoryMap.set(cat, (categoryMap.get(cat) || 0) + 1);
+          }
+        });
+        
         const metrics = {
           totalPlaces: firstRow.total_places || 0,
           areaKm2: firstRow.area_km2 || 0,
           areaAcres: firstRow.area_acres || 0,
+          perimeterFt: firstRow.perimeter_ft || 0,
           densityPerKm2: firstRow.density_per_km2 || 0,
           categoryBreakdown: {
             retail: firstRow.retail_count || 0,
             food: firstRow.food_count || 0,
+            restaurant: firstRow.food_count || 0, // Alias for compatibility
             service: firstRow.service_count || 0,
             entertainment: firstRow.entertainment_count || 0,
+            lodging: firstRow.lodging_count || 0,
             unknown: firstRow.unknown_count || 0,
+            // Add any other categories found
+            ...Object.fromEntries(categoryMap)
           },
           places: features, // Store individual places for detailed analysis
         };
@@ -554,239 +571,18 @@ export default function Root() {
         <Legend />
       </div>
 
-      {/* Sliding Report Panel */}
+      {/* Enhanced Sliding Report Panel */}
       {showReport && reportData && (
-        <ReportPanel 
+        <EnhancedReportPanel 
           data={reportData} 
-          onClose={() => setShowReport(false)} 
+          onClose={() => setShowReport(false)}
+          mapVisible={true}
         />
       )}
     </div>
   );
 }
 
-// ReportPanel Component
-function ReportPanel({ data, onClose }: { data: any; onClose: () => void }) {
-  // Industry-standard BID budget calculations
-  const calculateBudget = (totalPlaces: number, areaAcres: number) => {
-    // Industry averages (sources: International Downtown Association, NYC BID reports)
-    const basePerBusiness = 1200; // $1,200 per business annually (base services)
-    const areaFactor = Math.max(50, areaAcres * 25); // $25-50 per acre for area coverage
-    const economyOfScale = totalPlaces > 100 ? 0.85 : totalPlaces > 50 ? 0.9 : 1.0;
-    
-    const baseBudget = (totalPlaces * basePerBusiness + areaFactor) * economyOfScale;
-    
-    return {
-      low: Math.round(baseBudget * 0.7),
-      likely: Math.round(baseBudget),
-      high: Math.round(baseBudget * 1.4)
-    };
-  };
-
-  // Calculate diversity score (economic resilience indicator)
-  const calculateDiversityScore = (breakdown: any, total: number) => {
-    if (total === 0) return 0;
-    
-    const categories = Object.values(breakdown).filter(count => count > 0) as number[];
-    const shares = categories.map(count => count / total);
-    
-    // Simpson's Diversity Index adapted for business mix
-    const simpsonsIndex = 1 - shares.reduce((sum, share) => sum + share * share, 0);
-    return Math.round(simpsonsIndex * 10 * 100) / 100; // Scale to 0-10
-  };
-
-  const budget = calculateBudget(data.totalPlaces, data.areaAcres);
-  const diversityScore = calculateDiversityScore(data.categoryBreakdown, data.totalPlaces);
-  
-  const reportPanelStyle: React.CSSProperties = {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: "60%",
-    height: "100%",
-    backgroundColor: "white",
-    borderLeft: "2px solid #e2e8f0",
-    boxShadow: "-4px 0 10px rgba(0,0,0,0.1)",
-    overflowY: "auto",
-    animation: "slideIn 0.3s ease",
-    zIndex: 1000,
-  };
-
-  const headerStyle: React.CSSProperties = {
-    padding: "1.5rem",
-    borderBottom: "1px solid #e2e8f0",
-    backgroundColor: "#f8fafc",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center"
-  };
-
-  const contentStyle: React.CSSProperties = {
-    padding: "1.5rem"
-  };
-
-  const sectionStyle: React.CSSProperties = {
-    marginBottom: "2rem",
-    padding: "1rem",
-    backgroundColor: "#f9fafb",
-    borderRadius: "8px",
-    border: "1px solid #e5e7eb"
-  };
-
-  const statStyle: React.CSSProperties = {
-    display: "flex",
-    justifyContent: "space-between",
-    padding: "0.5rem 0",
-    borderBottom: "1px solid #e5e7eb"
-  };
-
-  return (
-    <>
-      <style>
-        {`
-          @keyframes slideIn {
-            from { transform: translateX(100%); }
-            to { transform: translateX(0); }
-          }
-        `}
-      </style>
-      <div style={reportPanelStyle}>
-        <div style={headerStyle}>
-          <h2 style={{ margin: 0, color: "#1e293b" }}>📊 BID Analysis Report</h2>
-          <button 
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              fontSize: "1.5rem",
-              cursor: "pointer",
-              padding: "0.5rem"
-            }}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div style={contentStyle}>
-          {/* Executive Summary */}
-          <div style={sectionStyle}>
-            <h3 style={{ marginBottom: "1rem", color: "#059669" }}>Executive Summary</h3>
-            <div style={statStyle}>
-              <span><strong>Total Businesses:</strong></span>
-              <span>{data.totalPlaces.toLocaleString()}</span>
-            </div>
-            <div style={statStyle}>
-              <span><strong>Area Coverage:</strong></span>
-              <span>{data.areaAcres.toFixed(1)} acres ({data.areaKm2.toFixed(2)} km²)</span>
-            </div>
-            <div style={statStyle}>
-              <span><strong>Business Density:</strong></span>
-              <span>{data.densityPerKm2.toFixed(1)} per km²</span>
-            </div>
-            <div style={statStyle}>
-              <span><strong>Economic Diversity Score:</strong></span>
-              <span>{diversityScore}/10 {diversityScore > 6 ? "🟢" : diversityScore > 4 ? "🟡" : "🔴"}</span>
-            </div>
-          </div>
-
-          {/* Budget Estimation */}
-          <div style={sectionStyle}>
-            <h3 style={{ marginBottom: "1rem", color: "#0ea5e9" }}>Annual Budget Estimation</h3>
-            <div style={statStyle}>
-              <span><strong>Conservative:</strong></span>
-              <span>${budget.low.toLocaleString()}</span>
-            </div>
-            <div style={statStyle}>
-              <span><strong>Likely:</strong></span>
-              <span style={{ fontWeight: "bold" }}>${budget.likely.toLocaleString()}</span>
-            </div>
-            <div style={statStyle}>
-              <span><strong>Ambitious:</strong></span>
-              <span>${budget.high.toLocaleString()}</span>
-            </div>
-            <div style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: "0.5rem" }}>
-              Based on industry standards: ${Math.round(budget.likely / data.totalPlaces).toLocaleString()} per business annually
-            </div>
-          </div>
-
-          {/* Business Mix Analysis */}
-          <div style={sectionStyle}>
-            <h3 style={{ marginBottom: "1rem", color: "#8b5cf6" }}>Business Mix Breakdown</h3>
-            {Object.entries(data.categoryBreakdown).map(([category, count]) => {
-              const percentage = data.totalPlaces > 0 ? ((count as number) / data.totalPlaces * 100) : 0;
-              return count > 0 ? (
-                <div key={category} style={statStyle}>
-                  <span style={{ textTransform: "capitalize" }}>{category}:</span>
-                  <span>{count} ({percentage.toFixed(1)}%)</span>
-                </div>
-              ) : null;
-            })}
-          </div>
-
-          {/* Investment Insights */}
-          <div style={sectionStyle}>
-            <h3 style={{ marginBottom: "1rem", color: "#f59e0b" }}>Investment Priority Insights</h3>
-            <div style={{ marginBottom: "1rem" }}>
-              <strong>High Priority Services:</strong>
-              <ul style={{ marginLeft: "1rem", marginTop: "0.5rem" }}>
-                {data.categoryBreakdown.retail > data.totalPlaces * 0.3 && 
-                  <li>Enhanced streetscape maintenance (high retail presence)</li>}
-                {data.categoryBreakdown.food > data.totalPlaces * 0.2 && 
-                  <li>Waste management optimization (restaurant concentration)</li>}
-                {data.densityPerKm2 > 100 && 
-                  <li>Pedestrian safety improvements (high density area)</li>}
-                {diversityScore < 5 && 
-                  <li>Business recruitment for economic resilience</li>}
-              </ul>
-            </div>
-            
-            <div>
-              <strong>Budget Allocation Guidance:</strong>
-              <ul style={{ marginLeft: "1rem", marginTop: "0.5rem" }}>
-                <li>Maintenance & Cleaning: 40-50% of budget</li>
-                <li>Security & Safety: 20-30% of budget</li>
-                <li>Marketing & Events: 15-20% of budget</li>
-                <li>Administration: 10-15% of budget</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Quick Stats */}
-          <div style={{ 
-            display: "grid", 
-            gridTemplateColumns: "1fr 1fr", 
-            gap: "1rem", 
-            marginTop: "1rem" 
-          }}>
-            <div style={{
-              padding: "1rem",
-              backgroundColor: "#dbeafe", 
-              borderRadius: "8px",
-              textAlign: "center"
-            }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#1e40af" }}>
-                ${Math.round(budget.likely / data.areaAcres).toLocaleString()}
-              </div>
-              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>Per Acre Annually</div>
-            </div>
-            <div style={{
-              padding: "1rem",
-              backgroundColor: "#dcfce7",
-              borderRadius: "8px", 
-              textAlign: "center"
-            }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#166534" }}>
-                {data.totalPlaces > 50 ? "Large" : data.totalPlaces > 20 ? "Medium" : "Small"}
-              </div>
-              <div style={{ fontSize: "0.85rem", color: "#64748b" }}>District Size</div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-    </>
-  );
-}
 
 function emptyFC(): FeatureCollection {
   return { type: "FeatureCollection", features: [] };
