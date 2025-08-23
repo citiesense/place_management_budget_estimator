@@ -8,6 +8,16 @@ import {
 } from '../utils/budgetCalculations';
 import { generateBIDReportPDF, generatePDFForEmail } from '../utils/pdfExport';
 import { ginkgoTheme } from '../styles/ginkgoTheme';
+import { Pie } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend
+} from 'chart.js';
+
+// Register Chart.js components
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 interface EnhancedReportPanelProps {
   data: any;
@@ -599,16 +609,11 @@ function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) 
           Budget Allocation
         </h3>
         <BudgetBar budget={budget} />
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '1rem',
-          marginTop: '1rem'
-        }}>
-          <BudgetLineItem label="Cleaning & Maintenance" value={budget.cleaning} percentage={(budget.cleaning / budget.subtotal * 100).toFixed(0)} />
-          <BudgetLineItem label="Safety & Hospitality" value={budget.safety} percentage={(budget.safety / budget.subtotal * 100).toFixed(0)} />
-          <BudgetLineItem label="Marketing & Events" value={budget.marketing} percentage={(budget.marketing / budget.subtotal * 100).toFixed(0)} />
-          <BudgetLineItem label="Streetscape Assets" value={budget.assets} percentage={(budget.assets / budget.subtotal * 100).toFixed(0)} />
+        <div style={{ marginTop: '1.5rem' }}>
+          <BudgetLineItemWithColor label="Cleaning & Maintenance" value={budget.cleaning} percentage={(budget.cleaning / budget.subtotal * 100).toFixed(0)} color="#0ea5e9" />
+          <BudgetLineItemWithColor label="Safety & Hospitality" value={budget.safety} percentage={(budget.safety / budget.subtotal * 100).toFixed(0)} color="#059669" />
+          <BudgetLineItemWithColor label="Marketing & Events" value={budget.marketing} percentage={(budget.marketing / budget.subtotal * 100).toFixed(0)} color="#f59e0b" />
+          <BudgetLineItemWithColor label="Streetscape Assets" value={budget.assets} percentage={(budget.assets / budget.subtotal * 100).toFixed(0)} color="#8b5cf6" />
         </div>
       </div>
       
@@ -640,6 +645,20 @@ function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) 
           <li>Staffing estimate: <strong>{budget.cleanersNeeded}</strong> cleaners, <strong>{budget.supervisorsNeeded}</strong> supervisors</li>
           {budget.safetyFTE > 0 && <li>Safety coverage: <strong>{budget.safetyFTE.toFixed(1)}</strong> FTE ambassadors</li>}
         </ul>
+      </div>
+      
+      {/* Categories Distribution Pie Chart */}
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        padding: '1.5rem',
+        marginTop: '2rem',
+        border: '1px solid #e2e8f0'
+      }}>
+        <h3 style={{ marginTop: 0, marginBottom: '1.5rem', color: ginkgoTheme.colors.primary.navy, fontFamily: ginkgoTheme.typography.fontFamily.heading }}>
+          Business Category Distribution
+        </h3>
+        <CategoryPieChart data={data} />
       </div>
     </div>
   );
@@ -972,6 +991,46 @@ function BudgetLineItem({ label, value, percentage }: any) {
   );
 }
 
+function BudgetLineItemWithColor({ label, value, percentage, color }: any) {
+  return (
+    <div style={{ 
+      display: 'flex', 
+      alignItems: 'center', 
+      padding: '0.75rem 0',
+      borderBottom: '1px solid #e2e8f0'
+    }}>
+      {/* Color indicator */}
+      <div style={{
+        width: '16px',
+        height: '16px',
+        backgroundColor: color,
+        borderRadius: '3px',
+        marginRight: '12px',
+        flexShrink: 0
+      }} />
+      
+      {/* Service name */}
+      <span style={{ 
+        color: '#374151',
+        fontFamily: ginkgoTheme.typography.fontFamily.body,
+        fontWeight: 500,
+        flexGrow: 1
+      }}>
+        {label}
+      </span>
+      
+      {/* Amount and percentage */}
+      <span style={{ 
+        fontWeight: 600,
+        color: '#1e293b',
+        fontFamily: ginkgoTheme.typography.fontFamily.body
+      }}>
+        ${value.toLocaleString()} ({percentage}%)
+      </span>
+    </div>
+  );
+}
+
 function ServicePriorities({ serviceDemands }: any) {
   const allNeeds = [
     ...serviceDemands.cleaning.needs.map((n: string) => ({ service: 'Cleaning', need: n, priority: serviceDemands.cleaning.priority })),
@@ -1122,6 +1181,134 @@ function SliderInput({ label, value, min, max, step, unit = '', onChange }: any)
           WebkitAppearance: 'none'
         }}
       />
+    </div>
+  );
+}
+
+// Category Pie Chart Component
+function CategoryPieChart({ data }: { data: any }) {
+  // Get category colors (same as used in map)
+  const CATEGORY_COLORS: Record<string, string> = {
+    food_and_drink: "#f37129",     // Ginkgo orange
+    shopping: "#0feaa6",           // Ginkgo green
+    health: "#034744",             // Ginkgo dark teal
+    education: "#162e54",          // Ginkgo navy
+    entertainment: "#a1c6bb",      // Ginkgo soft green
+    transportation: "#72b7b2",      
+    finance: "#dfebef",            // Ginkgo light gray
+    government: "#9e765f",
+    other: "#e2f2ee",              // Ginkgo very light green
+    retail: "#0feaa6",             // Map retail to green
+    restaurant: "#f37129",         // Map restaurant to orange
+    service: "#034744",            // Map service to dark teal
+  };
+
+  // Process the places data to count categories
+  const categoryCounts: Record<string, number> = {};
+  
+  if (data.places && Array.isArray(data.places)) {
+    data.places.forEach((place: any) => {
+      if (place.properties && place.properties.category) {
+        const category = place.properties.category.toLowerCase();
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      } else {
+        categoryCounts['other'] = (categoryCounts['other'] || 0) + 1;
+      }
+    });
+  }
+
+  // Filter out categories with 0 places and prepare chart data
+  const chartLabels: string[] = [];
+  const chartData: number[] = [];
+  const chartColors: string[] = [];
+
+  Object.entries(categoryCounts)
+    .filter(([_, count]) => count > 0)
+    .sort(([,a], [,b]) => b - a) // Sort by count descending
+    .forEach(([category, count]) => {
+      // Format category name for display
+      const displayName = category.split('_').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+      
+      chartLabels.push(`${displayName} (${count})`);
+      chartData.push(count);
+      chartColors.push(CATEGORY_COLORS[category] || CATEGORY_COLORS.other);
+    });
+
+  const chartConfig = {
+    labels: chartLabels,
+    datasets: [
+      {
+        data: chartData,
+        backgroundColor: chartColors,
+        borderColor: chartColors.map(color => color),
+        borderWidth: 2,
+        hoverBorderWidth: 3,
+        hoverBorderColor: '#ffffff'
+      }
+    ]
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'right' as const,
+        labels: {
+          padding: 20,
+          font: {
+            family: ginkgoTheme.typography.fontFamily.body,
+            size: 12
+          },
+          color: ginkgoTheme.colors.text.primary,
+          usePointStyle: true,
+          pointStyle: 'circle'
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        titleColor: 'white',
+        bodyColor: 'white',
+        borderColor: ginkgoTheme.colors.primary.green,
+        borderWidth: 1,
+        cornerRadius: 8,
+        displayColors: true,
+        callbacks: {
+          label: function(context: any) {
+            const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
+            const percentage = ((context.raw / total) * 100).toFixed(1);
+            return `${context.label}: ${percentage}%`;
+          }
+        }
+      }
+    }
+  };
+
+  if (chartLabels.length === 0) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '200px',
+        color: ginkgoTheme.colors.text.secondary,
+        fontFamily: ginkgoTheme.typography.fontFamily.body
+      }}>
+        No category data available
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '400px'
+    }}>
+      <Pie data={chartConfig} options={chartOptions} />
     </div>
   );
 }
