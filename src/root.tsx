@@ -3,6 +3,15 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { FeatureCollection } from "geojson";
 import { EnhancedReportPanel } from "./components/EnhancedReportPanel";
+import { 
+  GinkgoPanel, 
+  GinkgoButton, 
+  GinkgoTitle, 
+  GinkgoText, 
+  GinkgoBadge,
+  GinkgoLegend 
+} from "./components/GinkgoStyledPanel";
+import { ginkgoTheme } from "./styles/ginkgoTheme";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
@@ -10,15 +19,15 @@ const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox
 type FeatureCollection = GeoJSON.FeatureCollection;
 
 const CATEGORY_COLORS: Record<string, string> = {
-  food_and_drink: "#e45756",
-  shopping: "#f58518",
-  health: "#54a24b",
-  education: "#4c78a8",
-  entertainment: "#b279a2",
-  transportation: "#72b7b2",
-  finance: "#ff9da7",
+  food_and_drink: "#f37129",     // Ginkgo orange
+  shopping: "#0feaa6",            // Ginkgo green
+  health: "#034744",              // Ginkgo dark teal
+  education: "#162e54",           // Ginkgo navy
+  entertainment: "#a1c6bb",       // Ginkgo soft green
+  transportation: "#72b7b2",      
+  finance: "#dfebef",             // Ginkgo light gray
   government: "#9e765f",
-  other: "#bab0ac",
+  other: "#e2f2ee",               // Ginkgo very light green
 };
 
 export default function Root() {
@@ -54,13 +63,13 @@ export default function Root() {
           id: "drawing-poly-fill",
           type: "fill",
           source: "drawing-poly",
-          paint: { "fill-color": "#0ea5e9", "fill-opacity": 0.1 },
+          paint: { "fill-color": "#0feaa6", "fill-opacity": 0.15 },
         });
         map.addLayer({
           id: "drawing-poly-line",
           type: "line",
           source: "drawing-poly",
-          paint: { "line-color": "#0ea5e9", "line-width": 3 },
+          paint: { "line-color": "#0feaa6", "line-width": 3 },
         });
       }
 
@@ -81,8 +90,8 @@ export default function Root() {
             "circle-color": [
               "case",
               ["==", ["get", "isFirst"], true],
-              "#059669", // First point green
-              "#0ea5e9", // Other points blue
+              "#f37129", // First point orange (Ginkgo orange)
+              "#0feaa6", // Other points green (Ginkgo green)
             ],
             "circle-stroke-width": 2,
             "circle-stroke-color": "#ffffff",
@@ -102,7 +111,7 @@ export default function Root() {
           source: "first-point-hover",
           paint: {
             "circle-radius": 12,
-            "circle-color": "#059669",
+            "circle-color": "#f37129",
             "circle-opacity": 0.3,
           },
         });
@@ -523,53 +532,68 @@ export default function Root() {
           transition: "width 0.3s ease"
         }} 
       />
-      <div style={panelStyle}>
-        <h2>Place Management Budget Estimator</h2>
-        <p>
-          Click to add vertices. Click the first point (green) to close.
-          Right-click or press Escape to cancel.
-        </p>
+      <GinkgoPanel>
+        <GinkgoTitle level={2}>BID Budget Estimator</GinkgoTitle>
+        <GinkgoText muted>
+          Draw a polygon to analyze your district. Click to add points, click the first point to close.
+        </GinkgoText>
 
         {polygon ? (
-          <>
-            <button disabled={loading} onClick={fetchPlaces}>
-              Confirm selection &amp; fetch Places
-            </button>
-            <button onClick={clearAll} style={{ marginLeft: 8 }}>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+            <GinkgoButton 
+              disabled={loading} 
+              onClick={fetchPlaces}
+              variant="primary"
+            >
+              Analyze District
+            </GinkgoButton>
+            <GinkgoButton 
+              onClick={clearAll}
+              variant="secondary"
+            >
               Clear
-            </button>
-          </>
+            </GinkgoButton>
+          </div>
         ) : (
-          <em>Draw a polygon to begin…</em>
+          <GinkgoBadge variant="default">
+            Draw a polygon to begin
+          </GinkgoBadge>
         )}
 
-        {loading && <p>Fetching…</p>}
-        {error && <p style={{ color: "crimson" }}>Error: {error}</p>}
+        {loading && (
+          <div style={{ marginTop: '12px' }}>
+            <GinkgoBadge variant="warning">Analyzing...</GinkgoBadge>
+          </div>
+        )}
+        
+        {error && (
+          <div style={{ marginTop: '12px' }}>
+            <GinkgoBadge variant="error">Error: {error}</GinkgoBadge>
+          </div>
+        )}
+        
         {placeCount !== null && (
-          <p>
-            <strong>{placeCount.toLocaleString()}</strong> places found.
-          </p>
+          <div style={{ marginTop: '16px' }}>
+            <GinkgoText>
+              <strong style={{ color: ginkgoTheme.colors.primary.green }}>
+                {placeCount.toLocaleString()}
+              </strong> businesses found
+            </GinkgoText>
+          </div>
         )}
 
         {reportData && (
-          <button 
-            onClick={() => setShowReport(true)} 
-            style={{ 
-              marginTop: 8,
-              backgroundColor: '#059669',
-              color: 'white',
-              border: 'none',
-              padding: '8px 16px',
-              borderRadius: 4,
-              cursor: 'pointer'
-            }}
+          <GinkgoButton 
+            onClick={() => setShowReport(true)}
+            variant="primary"
+            style={{ marginTop: '12px', width: '100%' }}
           >
-            📊 View Report
-          </button>
+            View Full Report
+          </GinkgoButton>
         )}
 
-        <Legend />
-      </div>
+        <GinkgoLegend />
+      </GinkgoPanel>
 
       {/* Enhanced Sliding Report Panel */}
       {showReport && reportData && (
@@ -602,45 +626,3 @@ function polygonFC(pts: mapboxgl.LngLat[]): FeatureCollection {
   };
 }
 
-function Legend() {
-  return (
-    <div style={{ marginTop: 12 }}>
-      <strong>Legend</strong>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "auto 1fr",
-          gap: 6,
-          marginTop: 6,
-        }}
-      >
-        {Object.entries(CATEGORY_COLORS).map(([k, color]) => (
-          <React.Fragment key={k}>
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                background: color,
-                borderRadius: 999,
-              }}
-            />
-            <span style={{ textTransform: "capitalize" }}>
-              {k.replace(/_/g, " ")}
-            </span>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const panelStyle: React.CSSProperties = {
-  position: "absolute",
-  top: 16,
-  left: 16,
-  background: "rgba(255,255,255,0.95)",
-  padding: 12,
-  borderRadius: 8,
-  maxWidth: 360,
-  boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
-};
