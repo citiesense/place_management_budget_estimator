@@ -3,6 +3,7 @@ import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import type { FeatureCollection } from "geojson";
 import { EnhancedReportPanel } from "./components/EnhancedReportPanel";
+import { LocationSearchModal } from "./components/LocationSearchModal";
 import { 
   GinkgoPanel, 
   GinkgoButton, 
@@ -38,6 +39,9 @@ export default function Root() {
   const [error, setError] = useState<string | null>(null);
   const [reportData, setReportData] = useState<any>(null);
   const [showReport, setShowReport] = useState(false);
+  const [showFullReport, setShowFullReport] = useState(false);
+  const [showLocationSearch, setShowLocationSearch] = useState(true);
+  const [currentLocation, setCurrentLocation] = useState<string>('');
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -522,18 +526,78 @@ export default function Root() {
     setShowReport(false);
   }
 
+  // Handle location selection from search modal
+  const handleLocationSelected = (location: any) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Determine zoom level based on location type
+    let zoom = 10; // Default zoom
+    const placeTypes = location.place_type || [];
+    
+    if (placeTypes.includes('address')) {
+      zoom = 16; // High zoom for addresses
+    } else if (placeTypes.includes('neighborhood') || placeTypes.includes('locality')) {
+      zoom = 14; // Medium-high zoom for neighborhoods/towns
+    } else if (placeTypes.includes('place')) {
+      zoom = 12; // Medium zoom for cities
+    } else if (placeTypes.includes('region')) {
+      zoom = 8; // Lower zoom for states/regions
+    } else if (placeTypes.includes('country')) {
+      zoom = 6; // Lowest zoom for countries
+    }
+
+    // Fly to the selected location
+    map.flyTo({
+      center: location.center,
+      zoom: zoom,
+      duration: 2000,
+      essential: true
+    });
+
+    // Store current location name for display
+    setCurrentLocation(location.place_name);
+  };
+
+  // Handle opening location search
+  const handleOpenLocationSearch = () => {
+    setShowLocationSearch(true);
+  };
+
   return (
     <div className="app" style={{ height: "100vh", width: "100vw", position: "relative" }}>
       <div 
         id="map" 
         style={{ 
           height: "100%", 
-          width: showReport ? "40%" : "100%",
-          transition: "width 0.3s ease"
+          width: showReport ? (showFullReport ? "0%" : "50%") : "100%",
+          transition: "width 0.3s ease",
+          overflow: 'hidden'
         }} 
       />
       <GinkgoPanel>
-        <GinkgoTitle level={2}>BID Budget Estimator</GinkgoTitle>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div>
+            <GinkgoTitle level={2}>BID Budget Estimator</GinkgoTitle>
+            {currentLocation && (
+              <GinkgoText style={{ 
+                fontSize: '12px', 
+                color: ginkgoTheme.colors.primary.green, 
+                fontWeight: 500,
+                marginTop: '4px'
+              }}>
+                {currentLocation}
+              </GinkgoText>
+            )}
+          </div>
+          <GinkgoButton 
+            onClick={handleOpenLocationSearch}
+            variant="secondary"
+            style={{ padding: '8px 12px', fontSize: '12px' }}
+          >
+            Search Location
+          </GinkgoButton>
+        </div>
         <GinkgoText muted>
           Draw a polygon to analyze your district. Click to add points, click the first point to close.
         </GinkgoText>
@@ -595,12 +659,24 @@ export default function Root() {
         <GinkgoLegend />
       </GinkgoPanel>
 
+      {/* Location Search Modal */}
+      <LocationSearchModal
+        isOpen={showLocationSearch}
+        onClose={() => setShowLocationSearch(false)}
+        onLocationSelected={handleLocationSelected}
+        mapboxToken={MAPBOX_TOKEN}
+      />
+
       {/* Enhanced Sliding Report Panel */}
       {showReport && reportData && (
         <EnhancedReportPanel 
           data={reportData} 
-          onClose={() => setShowReport(false)}
+          onClose={() => {
+            setShowReport(false);
+            setShowFullReport(false);
+          }}
           mapVisible={true}
+          onFullReportToggle={(isFullReport) => setShowFullReport(isFullReport)}
         />
       )}
     </div>

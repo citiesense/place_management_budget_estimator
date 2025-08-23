@@ -13,9 +13,10 @@ interface EnhancedReportPanelProps {
   data: any;
   onClose: () => void;
   mapVisible?: boolean;
+  onFullReportToggle?: (isFullReport: boolean) => void;
 }
 
-export function EnhancedReportPanel({ data, onClose, mapVisible = true }: EnhancedReportPanelProps) {
+export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullReportToggle }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<'executive' | 'details' | 'parameters'>('executive');
   const [showFullReport, setShowFullReport] = useState(!mapVisible);
@@ -169,7 +170,11 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           {mapVisible && (
             <button
-              onClick={() => setShowFullReport(!showFullReport)}
+              onClick={() => {
+                const newFullReportState = !showFullReport;
+                setShowFullReport(newFullReportState);
+                onFullReportToggle?.(newFullReportState);
+              }}
               style={{
                 padding: '12px 24px',
                 backgroundColor: 'transparent',
