@@ -564,6 +564,7 @@ export default function Root() {
     setShowLocationSearch(true);
   };
 
+
   return (
     <div className="app" style={{ height: "100vh", width: "100vw", position: "relative" }}>
       <div 
@@ -656,7 +657,6 @@ export default function Root() {
           </GinkgoButton>
         )}
 
-        <GinkgoLegend />
       </GinkgoPanel>
 
       {/* Location Search Modal */}
