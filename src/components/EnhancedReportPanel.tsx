@@ -7,6 +7,7 @@ import {
   getServiceDemandIndicators
 } from '../utils/budgetCalculations';
 import { generateBIDReportPDF, generatePDFForEmail } from '../utils/pdfExport';
+import { ginkgoTheme } from '../styles/ginkgoTheme';
 
 interface EnhancedReportPanelProps {
   data: any;
@@ -140,17 +141,28 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
       {/* Header */}
       <div style={{
         padding: '1rem 1.5rem',
-        borderBottom: '2px solid #e2e8f0',
-        backgroundColor: '#f8fafc',
+        borderBottom: `2px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+        backgroundColor: ginkgoTheme.colors.background.main,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
         <div>
-          <h2 style={{ margin: 0, color: '#1e293b', fontSize: '1.5rem' }}>
+          <h2 style={{ 
+            margin: 0, 
+            color: ginkgoTheme.colors.primary.navy, 
+            fontSize: '24px',
+            fontFamily: ginkgoTheme.typography.fontFamily.heading,
+            fontWeight: 600
+          }}>
             BID Budget Analysis
           </h2>
-          <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.9rem' }}>
+          <p style={{ 
+            margin: '0.25rem 0 0', 
+            color: ginkgoTheme.colors.text.secondary, 
+            fontSize: '14px',
+            fontFamily: ginkgoTheme.typography.fontFamily.body
+          }}>
             {placeTypology} • {data.totalPlaces} businesses • {data.areaAcres.toFixed(1)} acres
           </p>
         </div>
@@ -159,44 +171,89 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
             <button
               onClick={() => setShowFullReport(!showFullReport)}
               style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: '#f1f5f9',
-                border: '1px solid #cbd5e1',
-                borderRadius: '4px',
+                padding: '12px 24px',
+                backgroundColor: 'transparent',
+                border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+                borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '0.9rem'
+                fontSize: '14px',
+                fontFamily: ginkgoTheme.typography.fontFamily.body,
+                color: ginkgoTheme.colors.text.secondary,
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = ginkgoTheme.colors.secondary.veryLightGreen;
+                e.currentTarget.style.borderColor = ginkgoTheme.colors.primary.green;
+                e.currentTarget.style.color = ginkgoTheme.colors.primary.green;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.borderColor = ginkgoTheme.colors.secondary.lightGray;
+                e.currentTarget.style.color = ginkgoTheme.colors.text.secondary;
               }}
             >
-              {showFullReport ? '⬅️ Split View' : '⬅️➡️ Full Report'}
+              {showFullReport ? 'Split View' : 'Full Report'}
             </button>
           )}
           <button
             onClick={exportToPDF}
             style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#0ea5e9',
+              padding: '12px 24px',
+              backgroundColor: ginkgoTheme.colors.primary.orange,
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '0.9rem'
+              fontSize: '14px',
+              fontWeight: 600,
+              fontFamily: ginkgoTheme.typography.fontFamily.body,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 234, 166, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            📄 Export PDF
+            Export PDF
           </button>
           <button
             onClick={() => setShowShareModal(true)}
             style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#059669',
+              padding: '12px 24px',
+              backgroundColor: ginkgoTheme.colors.primary.green,
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '0.9rem'
+              fontSize: '14px',
+              fontWeight: 600,
+              fontFamily: ginkgoTheme.typography.fontFamily.body,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.3s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(243, 113, 41, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            📧 Share Report
+            Share Report
           </button>
           <button
             onClick={onClose}
@@ -217,8 +274,8 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
       {/* Tabs */}
       <div style={{
         display: 'flex',
-        borderBottom: '1px solid #e2e8f0',
-        backgroundColor: '#f8fafc'
+        borderBottom: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+        backgroundColor: ginkgoTheme.colors.background.main
       }}>
         {(['executive', 'details', 'parameters'] as const).map(tab => (
           <button
@@ -228,16 +285,18 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
               padding: '0.75rem 1.5rem',
               backgroundColor: activeTab === tab ? 'white' : 'transparent',
               border: 'none',
-              borderBottom: activeTab === tab ? '2px solid #0ea5e9' : '2px solid transparent',
+              borderBottom: activeTab === tab ? `2px solid ${ginkgoTheme.colors.primary.green}` : '2px solid transparent',
               cursor: 'pointer',
               fontWeight: activeTab === tab ? 600 : 400,
-              color: activeTab === tab ? '#0ea5e9' : '#64748b',
-              textTransform: 'capitalize'
+              fontFamily: ginkgoTheme.typography.fontFamily.body,
+              color: activeTab === tab ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.text.secondary,
+              textTransform: 'capitalize',
+              transition: 'all 0.2s ease'
             }}
           >
-            {tab === 'executive' ? '📊 Executive Summary' :
-             tab === 'details' ? '📋 Service Details' :
-             '⚙️ Budget Parameters'}
+            {tab === 'executive' ? 'Executive Summary' :
+             tab === 'details' ? 'Service Details' :
+             'Budget Parameters'}
           </button>
         ))}
       </div>
@@ -289,12 +348,14 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
             backgroundColor: 'white',
             borderRadius: '12px',
             padding: '2rem',
-            maxWidth: '500px',
-            width: '90%',
+            maxWidth: '600px',
+            width: '95%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
             boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
           }}>
-            <h3 style={{ marginTop: 0, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              📧 Share BID Report
+            <h3 style={{ marginTop: 0, color: ginkgoTheme.colors.primary.navy, fontFamily: ginkgoTheme.typography.fontFamily.heading, fontWeight: 600, fontSize: '20px' }}>
+              Share BID Report
             </h3>
             <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
               Enter email addresses (separated by commas) to share this budget report as a PDF attachment.
@@ -316,17 +377,25 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
                 style={{
                   width: '100%',
                   minHeight: '80px',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
+                  padding: '12px 16px',
+                  border: `2px solid ${ginkgoTheme.colors.secondary.lightGray}`,
                   borderRadius: '6px',
-                  fontSize: '0.9rem',
-                  fontFamily: 'inherit',
+                  fontSize: '14px',
+                  fontFamily: ginkgoTheme.typography.fontFamily.body,
                   resize: 'vertical',
                   outline: 'none',
-                  transition: 'border-color 0.2s'
+                  transition: 'all 0.2s ease',
+                  backgroundColor: ginkgoTheme.colors.background.main,
+                  boxSizing: 'border-box'
                 }}
-                onFocus={(e) => e.target.style.borderColor = '#0ea5e9'}
-                onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                onFocus={(e) => {
+                  e.target.style.borderColor = ginkgoTheme.colors.primary.green;
+                  e.target.style.boxShadow = `0 0 0 3px rgba(15, 234, 166, 0.1)`;
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = ginkgoTheme.colors.secondary.lightGray;
+                  e.target.style.boxShadow = 'none';
+                }}
               />
               <div style={{ 
                 fontSize: '0.8rem', 
@@ -365,13 +434,29 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
                 }}
                 disabled={shareLoading}
                 style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: '#f1f5f9',
-                  border: '1px solid #cbd5e1',
+                  padding: '12px 24px',
+                  backgroundColor: 'transparent',
+                  border: `2px solid ${shareLoading ? ginkgoTheme.colors.secondary.lightGray : ginkgoTheme.colors.secondary.lightGray}`,
                   borderRadius: '6px',
                   cursor: shareLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '0.9rem',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  fontFamily: ginkgoTheme.typography.fontFamily.body,
+                  color: shareLoading ? ginkgoTheme.colors.text.secondary : ginkgoTheme.colors.text.secondary,
+                  transition: 'all 0.3s ease',
                   opacity: shareLoading ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!shareLoading) {
+                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.secondary.lightGray;
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!shareLoading) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
                 }}
               >
                 Cancel
@@ -380,16 +465,38 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
                 onClick={handleShareReport}
                 disabled={shareLoading || !emailList.trim()}
                 style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: shareLoading ? '#94a3b8' : '#059669',
-                  color: 'white',
+                  padding: '12px 24px',
+                  backgroundColor: shareLoading || !emailList.trim() ? 
+                    ginkgoTheme.colors.secondary.lightGray : 
+                    ginkgoTheme.colors.primary.green,
+                  color: shareLoading || !emailList.trim() ? 
+                    ginkgoTheme.colors.text.secondary : 
+                    'white',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: shareLoading || !emailList.trim() ? 'not-allowed' : 'pointer',
-                  fontSize: '0.9rem',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  fontFamily: ginkgoTheme.typography.fontFamily.body,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem'
+                  gap: '8px',
+                  transition: 'all 0.3s ease',
+                  opacity: shareLoading || !emailList.trim() ? 0.6 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!shareLoading && emailList.trim()) {
+                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(243, 113, 41, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!shareLoading && emailList.trim()) {
+                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }
                 }}
               >
                 {shareLoading ? (
@@ -405,7 +512,7 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true }: Enhanc
                     Sending...
                   </>
                 ) : (
-                  <>📤 Send Report</>
+                  <>Send Report</>
                 )}
               </button>
             </div>
