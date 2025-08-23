@@ -42,6 +42,7 @@ export default function Root() {
   const [showFullReport, setShowFullReport] = useState(false);
   const [showLocationSearch, setShowLocationSearch] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<string>('');
+  const [showSidebar, setShowSidebar] = useState(true);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -564,6 +565,36 @@ export default function Root() {
     setShowLocationSearch(true);
   };
 
+  // Center map on polygon bounds
+  const centerMapOnPolygon = () => {
+    if (!polygon || !polygon.features.length) return;
+    
+    const map = mapRef.current;
+    if (!map) return;
+
+    const coords = polygon.features[0].geometry.coordinates[0];
+    
+    // Calculate bounds from polygon coordinates
+    let minLng = coords[0][0], maxLng = coords[0][0];
+    let minLat = coords[0][1], maxLat = coords[0][1];
+    
+    coords.forEach(([lng, lat]: number[]) => {
+      minLng = Math.min(minLng, lng);
+      maxLng = Math.max(maxLng, lng);
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+    });
+
+    // Fit bounds with padding
+    map.fitBounds(
+      [[minLng, minLat], [maxLng, maxLat]],
+      {
+        padding: 50,
+        duration: 1000
+      }
+    );
+  };
+
 
   return (
     <div className="app" style={{ height: "100vh", width: "100vw", position: "relative" }}>
@@ -576,7 +607,55 @@ export default function Root() {
           overflow: 'hidden'
         }} 
       />
-      <GinkgoPanel>
+      
+      {/* Left-Edge Sidebar Toggle Tab */}
+      <button
+        onClick={() => setShowSidebar(!showSidebar)}
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '0px',
+          transform: 'translateY(-50%)',
+          zIndex: 2000,
+          padding: '16px 8px',
+          backgroundColor: ginkgoTheme.colors.primary.orange,
+          color: 'white',
+          border: 'none',
+          borderRadius: '0 12px 12px 0',
+          cursor: 'pointer',
+          fontSize: '18px',
+          fontWeight: 600,
+          fontFamily: ginkgoTheme.typography.fontFamily.body,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
+          transition: 'all 0.3s ease',
+          width: '16px',
+          height: '60px',
+          writingMode: 'vertical-rl',
+          textOrientation: 'mixed'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+          e.currentTarget.style.width = '48px';
+          e.currentTarget.style.padding = '16px 12px';
+          e.currentTarget.style.boxShadow = '4px 0 12px rgba(15, 234, 166, 0.4)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
+          e.currentTarget.style.width = '16px';
+          e.currentTarget.style.padding = '16px 8px';
+          e.currentTarget.style.boxShadow = '2px 0 8px rgba(0,0,0,0.15)';
+        }}
+        title={showSidebar ? "Hide Panel" : "Show Panel"}
+      >
+        {showSidebar ? '‹' : '›'}
+      </button>
+      
+      {/* Sidebar Panel - Conditionally Rendered */}
+      {showSidebar && (
+        <GinkgoPanel>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
             <GinkgoTitle level={2}>BID Budget Estimator</GinkgoTitle>
@@ -649,7 +728,11 @@ export default function Root() {
 
         {reportData && (
           <GinkgoButton 
-            onClick={() => setShowReport(true)}
+            onClick={() => {
+              setShowReport(true);
+              setShowSidebar(false); // Auto-close sidebar when opening report
+              setTimeout(() => centerMapOnPolygon(), 100); // Center map after report opens
+            }}
             variant="primary"
             style={{ marginTop: '12px', width: '100%' }}
           >
@@ -657,7 +740,8 @@ export default function Root() {
           </GinkgoButton>
         )}
 
-      </GinkgoPanel>
+        </GinkgoPanel>
+      )}
 
       {/* Location Search Modal */}
       <LocationSearchModal
@@ -674,6 +758,7 @@ export default function Root() {
           onClose={() => {
             setShowReport(false);
             setShowFullReport(false);
+            setShowSidebar(true); // Auto-restore sidebar when closing report
           }}
           mapVisible={true}
           onFullReportToggle={(isFullReport) => setShowFullReport(isFullReport)}
