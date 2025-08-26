@@ -732,7 +732,7 @@ export default function Root() {
           textOrientation: 'mixed'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+          e.currentTarget.style.backgroundColor = '#0feaa6'; // Green hover
           e.currentTarget.style.width = '48px';
           e.currentTarget.style.padding = '16px 12px';
           e.currentTarget.style.boxShadow = '4px 0 12px rgba(15, 234, 166, 0.4)';
@@ -751,13 +751,31 @@ export default function Root() {
       {/* Sidebar Panel - Conditionally Rendered */}
       {showSidebar && (
         <GinkgoPanel>
+        {/* Ginkgo Logo Header */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          marginBottom: '20px',
+          paddingBottom: '16px',
+          borderBottom: `2px solid ${ginkgoTheme.colors.primary.orange}`
+        }}>
+          <img 
+            src="/assets/GinkgoWordmark_Orange.svg" 
+            alt="Ginkgo"
+            style={{ 
+              height: '32px',
+              width: 'auto'
+            }}
+          />
+        </div>
+        
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
             <GinkgoTitle level={2}>BID Budget Estimator</GinkgoTitle>
             {currentLocation && (
               <GinkgoText style={{ 
                 fontSize: '12px', 
-                color: ginkgoTheme.colors.primary.green, 
+                color: ginkgoTheme.colors.primary.navy, 
                 fontWeight: 500,
                 marginTop: '4px'
               }}>
@@ -814,7 +832,7 @@ export default function Root() {
         {placeCount !== null && (
           <div style={{ marginTop: '16px' }}>
             <GinkgoText>
-              <strong style={{ color: ginkgoTheme.colors.primary.green }}>
+              <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
                 {placeCount.toLocaleString()}
               </strong> businesses found
             </GinkgoText>

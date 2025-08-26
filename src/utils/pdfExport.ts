@@ -301,21 +301,48 @@ export async function generateBIDReportPDF({
   const contentWidth = rightMargin - leftMargin;
   
   // Helper functions
-  const addHeader = () => {
-    // Header background
-    doc.setFillColor(...colors.primary);
+  const addHeader = async () => {
+    // Header background - white like the website
+    doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, 216, 35, 'F');
     
-    // Title
-    doc.setTextColor(255, 255, 255);
+    // Add light gray bottom border
+    doc.setDrawColor(229, 231, 235); // Light gray border
+    doc.setLineWidth(0.5);
+    doc.line(0, 35, 216, 35);
+    
+    // Add Ginkgo logo
+    try {
+      const logoResponse = await fetch('/assets/GinkgoLogomark_Orange.png');
+      if (logoResponse.ok) {
+        const logoBlob = await logoResponse.blob();
+        const logoBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(logoBlob);
+        });
+        
+        // Add logo to header (positioned on the left, similar to website)
+        const logoSize = 20; // mm
+        const logoX = leftMargin;
+        const logoY = 7;
+        doc.addImage(logoBase64, 'PNG', logoX, logoY, logoSize, logoSize);
+      }
+    } catch (error) {
+      // Logo loading failed - continue without logo
+    }
+    
+    // Title - now in navy blue
+    doc.setTextColor(22, 45, 84); // Navy blue #162d54
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
-    doc.text('BID Budget Analysis Report', leftMargin, 20);
+    doc.text('BID Budget Analysis Report', leftMargin + 25, 20); // Offset for logo
     
     // Subtitle
     doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${placeTypology} • ${data.totalPlaces} businesses • ${data.areaAcres.toFixed(1)} acres`, leftMargin, 28);
+    doc.setTextColor(100, 116, 139); // Light gray for subtitle
+    doc.text(`${placeTypology} • ${data.totalPlaces} businesses • ${data.areaAcres.toFixed(1)} acres`, leftMargin + 25, 28);
     
     yPos = 45;
   };
@@ -400,7 +427,7 @@ export async function generateBIDReportPDF({
   };
   
   // PAGE 1: Executive Summary
-  addHeader();
+  await addHeader();
   
   // Key Metrics Grid
   addSection('Executive Summary', colors.secondary);
@@ -715,7 +742,8 @@ export async function generateBIDReportPDF({
   });
   
   // Footer on each page
-  const addFooter = (pageNum: number) => {
+  const addFooter = async (pageNum: number) => {
+    // Main footer text
     doc.setFontSize(8);
     doc.setTextColor(...colors.lightText);
     doc.text(
@@ -724,20 +752,46 @@ export async function generateBIDReportPDF({
       285,
       { align: 'center' }
     );
+    
+    // Add "Powered by Ginkgo" with small logo
+    try {
+      const logoResponse = await fetch('/assets/GinkgoLogomark_Orange.png');
+      if (logoResponse.ok) {
+        const logoBlob = await logoResponse.blob();
+        const logoBase64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(logoBlob);
+        });
+        
+        // Small logo and text in bottom right
+        const logoSize = 8; // mm
+        const logoX = rightMargin - logoSize - 25;
+        const logoY = 278;
+        doc.addImage(logoBase64, 'PNG', logoX, logoY, logoSize, logoSize);
+        
+        doc.setFontSize(7);
+        doc.setTextColor(...colors.lightText);
+        doc.text('Powered by', logoX + logoSize + 2, logoY + 3);
+        doc.text('Ginkgo', logoX + logoSize + 2, logoY + 7);
+      }
+    } catch (error) {
+      // Logo loading failed - continue without logo
+    }
   };
   
   // Add footers
   doc.setPage(1);
-  addFooter(1);
+  await addFooter(1);
   doc.setPage(2);
-  addFooter(2);
+  await addFooter(2);
   
   // Add methodology note at the end
   yPos += 10;
   if (yPos > 240) {
     doc.addPage();
     yPos = 20;
-    addFooter(3);
+    await addFooter(3);
   }
   
   doc.setFillColor(...colors.lightBg);

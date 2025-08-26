@@ -93,7 +93,9 @@ export function GinkgoButton({
         disabled={disabled}
         style={{
           ...baseStyle,
-          backgroundColor: 'transparent',
+          backgroundColor: disabled 
+            ? ginkgoTheme.colors.button.disabled 
+            : ginkgoTheme.colors.button.secondaryBg,
           color: disabled 
             ? ginkgoTheme.colors.button.disabled 
             : ginkgoTheme.colors.button.secondaryText,
@@ -103,15 +105,17 @@ export function GinkgoButton({
         }}
         onMouseEnter={(e) => {
           if (!disabled) {
-            e.currentTarget.style.backgroundColor = ginkgoTheme.colors.button.secondaryText;
+            e.currentTarget.style.backgroundColor = ginkgoTheme.colors.button.secondaryHover;
+            e.currentTarget.style.borderColor = ginkgoTheme.colors.button.secondaryHover;
             e.currentTarget.style.color = ginkgoTheme.colors.text.white;
             e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.boxShadow = ginkgoTheme.shadows.glow;
+            e.currentTarget.style.boxShadow = '0 10px 20px rgba(15, 234, 166, 0.4)';
           }
         }}
         onMouseLeave={(e) => {
           if (!disabled) {
-            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.backgroundColor = ginkgoTheme.colors.button.secondaryBg;
+            e.currentTarget.style.borderColor = ginkgoTheme.colors.button.secondaryBorder;
             e.currentTarget.style.color = ginkgoTheme.colors.button.secondaryText;
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.boxShadow = 'none';

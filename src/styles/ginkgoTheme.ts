@@ -40,9 +40,10 @@ export const ginkgoTheme = {
       primaryBg: '#f37129',   // Orange
       primaryText: '#ffffff',
       primaryHover: '#0feaa6',
-      secondaryBg: 'transparent',
-      secondaryText: '#0feaa6',
-      secondaryBorder: '#0feaa6',
+      secondaryBg: '#162d54', // Navy blue background
+      secondaryText: '#ffffff', // White text on navy
+      secondaryBorder: '#162d54', // Navy border
+      secondaryHover: '#0feaa6', // Green on hover
       disabled: '#d8d8d8',
     }
   },
@@ -194,7 +195,7 @@ export const getButtonStyles = (variant: 'primary' | 'secondary' = 'primary') =>
     };
   } else {
     return {
-      backgroundColor: 'transparent',
+      backgroundColor: theme.colors.button.secondaryBg,
       color: theme.colors.button.secondaryText,
       border: `2px solid ${theme.colors.button.secondaryBorder}`,
       height: theme.components.button.height,

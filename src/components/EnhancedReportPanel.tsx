@@ -248,7 +248,7 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
             onClick={() => setShowShareModal(true)}
             style={{
               padding: '12px 24px',
-              backgroundColor: ginkgoTheme.colors.primary.green,
+              backgroundColor: '#162d54', // Navy blue
               color: 'white',
               border: 'none',
               borderRadius: '6px',
@@ -262,12 +262,12 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
               transition: 'all 0.3s ease'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
+              e.currentTarget.style.backgroundColor = 'rgb(15, 234, 166)'; // Green hover
               e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(243, 113, 41, 0.4)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 234, 166, 0.4)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
+              e.currentTarget.style.backgroundColor = '#162d54'; // Back to navy blue
               e.currentTarget.style.transform = 'translateY(0)';
               e.currentTarget.style.boxShadow = 'none';
             }}
@@ -304,11 +304,11 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
               padding: '0.75rem 1.5rem',
               backgroundColor: activeTab === tab ? 'white' : 'transparent',
               border: 'none',
-              borderBottom: activeTab === tab ? `2px solid ${ginkgoTheme.colors.primary.green}` : '2px solid transparent',
+              borderBottom: activeTab === tab ? `2px solid ${ginkgoTheme.colors.primary.navy}` : '2px solid transparent',
               cursor: 'pointer',
               fontWeight: activeTab === tab ? 600 : 400,
               fontFamily: ginkgoTheme.typography.fontFamily.body,
-              color: activeTab === tab ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.text.secondary,
+              color: activeTab === tab ? ginkgoTheme.colors.primary.navy : ginkgoTheme.colors.text.secondary,
               textTransform: 'capitalize',
               transition: 'all 0.2s ease'
             }}
