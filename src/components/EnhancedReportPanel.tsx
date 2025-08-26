@@ -672,6 +672,105 @@ function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) 
 function ServiceDetails({ data, budget, serviceDemands, params }: any) {
   return (
     <div>
+      {/* Service Priority Classification Explanation */}
+      <div style={{
+        backgroundColor: '#f0f9ff',
+        borderRadius: '8px',
+        padding: '1.5rem',
+        marginBottom: '2rem',
+        border: '1px solid #bfdbfe'
+      }}>
+        <h3 style={{ margin: '0 0 1rem 0', color: '#075985', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          📊 Service Priority Classification System
+        </h3>
+        <p style={{ margin: '0 0 1rem 0', color: '#334155', fontSize: '0.9rem' }}>
+          Priority badges are determined by service intensity calculations based on business mix analysis:
+        </p>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+          <div style={{
+            padding: '0.75rem',
+            backgroundColor: 'white',
+            borderRadius: '6px',
+            border: '1px solid #e2e8f0',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              padding: '0.25rem 0.75rem',
+              backgroundColor: '#dc262620',
+              color: '#dc2626',
+              borderRadius: '20px',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              marginBottom: '0.5rem'
+            }}>
+              High Priority
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              Intensity &gt; 1.15<br/>
+              (15% above baseline)
+            </div>
+          </div>
+          
+          <div style={{
+            padding: '0.75rem',
+            backgroundColor: 'white',
+            borderRadius: '6px',
+            border: '1px solid #e2e8f0',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              padding: '0.25rem 0.75rem',
+              backgroundColor: '#f59e0b20',
+              color: '#f59e0b',
+              borderRadius: '20px',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              marginBottom: '0.5rem'
+            }}>
+              Medium Priority
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              Intensity &gt; 1.05<br/>
+              (5-15% above baseline)
+            </div>
+          </div>
+          
+          <div style={{
+            padding: '0.75rem',
+            backgroundColor: 'white',
+            borderRadius: '6px',
+            border: '1px solid #e2e8f0',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              padding: '0.25rem 0.75rem',
+              backgroundColor: '#05966920',
+              color: '#059669',
+              borderRadius: '20px',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              marginBottom: '0.5rem'
+            }}>
+              Standard
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              Intensity ≤ 1.05<br/>
+              (At or below baseline)
+            </div>
+          </div>
+        </div>
+        
+        <div style={{
+          fontSize: '0.85rem',
+          color: '#64748b',
+          fontStyle: 'italic',
+          textAlign: 'center'
+        }}>
+          Based on BOMA, ISSA, and IDA industry standards for cleaning service intensity
+        </div>
+      </div>
+
       {/* Cleaning Services */}
       <ServiceSection
         title="Cleaning & Maintenance"
