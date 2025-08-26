@@ -1290,178 +1290,16 @@ function SliderInput({ label, value, min, max, step, unit = '', onChange }: any)
 
 // Category Pie Chart Component
 function CategoryPieChart({ data }: { data: any }) {
-  // Get category colors (same as used in map - updated for better visibility)
-  const CATEGORY_COLORS: Record<string, string> = {
-    food_and_drink: "#f37129",     // Ginkgo orange
-    shopping: "#0feaa6",            // Ginkgo green
-    health: "#034744",              // Ginkgo dark teal
-    education: "#162e54",           // Ginkgo navy
-    entertainment: "#ec4899",       // Pink for better visibility
-    transportation: "#06b6d4",      // Cyan for better visibility
-    finance: "#8b5cf6",             // Purple for better visibility
-    government: "#9e765f",          // Brown
-    other: "#6b7280",               // Gray for uncategorized
-    retail: "#0feaa6",              // Map retail to green
-    restaurant: "#f37129",          // Map restaurant to orange
-    service: "#034744",             // Map service to dark teal
-  };
-  
-  // Comprehensive color mapping for all business categories
-  const EXTENDED_COLORS: Record<string, string> = {
-    ...CATEGORY_COLORS,
-    
-    // === From Screenshot - High Priority ===
-    "beauty_salon": "#e11d48",           // Rose
-    "professional_services": "#3b82f6", // Blue  
-    "tattoo_and_piercing": "#a855f7",   // Purple
-    "community_services_non_profits": "#22c55e", // Green
-    "landmark_and_historical_building": "#8b5cf6", // Violet
-    "automotive_repair": "#047857",       // Dark green
-    "coffee_shop": "#78350f",            // Dark brown
-    "counseling_and_mental_health": "#831843", // Dark pink
-    "gym": "#047857",                    // Emerald
-    "art_gallery": "#fb923c",            // Light orange
-    "shopping": "#0feaa6",               // Ginkgo green
-    "beauty_and_spa": "#db2777",         // Pink
-    caterer: "#f97316",                  // Orange
-    bakery: "#ea580c",                   // Dark orange
-    restaurant: "#f37129",               // Ginkgo orange
-    "advertising_agency": "#f59e0b",     // Amber
-    brewery: "#ca8a04",                  // Amber
-    "bicycle_shop": "#9333ea",           // Violet
-    "carpet_store": "#7c3aed",           // Purple
-    chiropractor: "#4338ca",             // Indigo
-    massage: "#15803d",                  // Green
-    plumbing: "#365314",                 // Olive
-    "printing_services": "#6366f1",      // Indigo
-    "real_estate_agent": "#422006",      // Dark brown
-    "thai_restaurant": "#7c2d12",        // Rust
-    "asian_restaurant": "#db2777",       // Pink
-    "bank_credit_union": "#c026d3",      // Fuchsia
-    distillery: "#1e40af",               // Blue
-    "engineering_services": "#1e3a8a",   // Navy
-    "fashion_accessories_store": "#0c4a6e", // Dark blue
-    "flowers_and_gifts_shop": "#075985", // Sky blue
-    "furniture_store": "#0e7490",        // Dark cyan
-    "grocery_store": "#0d9488",          // Teal
-    
-    // === Additional Common Categories ===
-    bar: "#dc2626",                      // Red
-    winery: "#7c2d12",                   // Brown
-    contractor: "#0891b2",               // Dark cyan
-    electrician: "#0e7490",              // Teal
-    "appliance_repair_service": "#059669", // Emerald
-    "auto_glass_service": "#10b981",     // Green
-    "hardware_store": "#84cc16",         // Lime
-    theatre: "#ec4899",                  // Pink
-    "topic_concert_venue": "#f43f5e",    // Rose
-    "naturopathic_holistic": "#14b8a6",  // Teal
-    "event_photography": "#f87171",      // Light red
-    acupuncture: "#c084fc",              // Light purple
-    "arts_and_crafts": "#fbbf24",        // Yellow
-    bartender: "#a78bfa",                // Light violet
-    "building_supply_store": "#94a3b8",  // Slate
-    "clothing_store": "#93c5fd",         // Light blue
-    "construction_services": "#6ee7b7",  // Light green
-    "fast_food_restaurant": "#fed7aa",   // Light orange
-    
-    // === Generic Mappings ===
-    bank: "#1f2937",                     // Dark gray
-    "credit_union": "#374151",           // Gray
-    spa: "#be123c",                      // Crimson
-    repair: "#0891b2",                   // Cyan
-    shop: "#10b981",                     // Green
-    store: "#84cc16",                    // Lime
-    services: "#3b82f6",                 // Blue
-    "dental_office": "#7c3aed",          // Purple
-    "medical_office": "#8b5cf6",         // Violet
-    "law_office": "#6366f1",             // Indigo
-    "insurance_agency": "#3b82f6",       // Blue
-    hotel: "#ec4899",                    // Pink
-    motel: "#f43f5e",                    // Rose
-    "gas_station": "#dc2626",            // Red
-    pharmacy: "#059669",                 // Emerald
-    "pet_store": "#22c55e",              // Green
-    florist: "#84cc16",                  // Lime
-    "shoe_store": "#a855f7",             // Purple
-    "jewelry_store": "#fbbf24",          // Yellow
-    "electronics_store": "#06b6d4",      // Cyan
-    "sporting_goods_store": "#10b981",   // Green
-    "toy_store": "#f472b6",              // Light pink
-    "book_store": "#8b5cf6",             // Violet
-    "music_store": "#ec4899",            // Pink
-    "gift_shop": "#f59e0b",              // Amber
-    "antique_store": "#92400e",          // Dark orange
-    "thrift_store": "#78350f",           // Dark brown
-    laundromat: "#0891b2",               // Cyan
-    "dry_cleaner": "#06b6d4",            // Light cyan
-    "nail_salon": "#f9a8d4",             // Light pink
-    "hair_salon": "#e879f9",             // Light purple
-    "tanning_salon": "#fbbf24",          // Yellow
-    "fitness_center": "#22c55e",         // Green
-    "dance_studio": "#f472b6",           // Light pink
-    "martial_arts": "#dc2626",           // Red
-    "yoga_studio": "#84cc16",            // Lime
-    daycare: "#fed7aa",                  // Light orange
-    "senior_center": "#a78bfa",          // Light violet
-    library: "#8b5cf6",                  // Violet
-    "post_office": "#6366f1",            // Indigo
-    "fire_station": "#dc2626",           // Red
-    "police_station": "#1e40af",         // Blue
-    hospital: "#f43f5e",                 // Rose
-    clinic: "#ec4899",                   // Pink
-    "veterinary_clinic": "#22c55e",      // Green
-    church: "#8b5cf6",                   // Violet
-    mosque: "#6366f1",                   // Indigo
-    synagogue: "#3b82f6",                // Blue
-    temple: "#a855f7",                   // Purple
-    cemetery: "#6b7280",                 // Gray
-    park: "#22c55e",                     // Green
-    "movie_theater": "#ec4899",          // Pink
-    casino: "#dc2626",                   // Red
-    "bowling_alley": "#f59e0b",          // Amber
-    "golf_course": "#84cc16",            // Lime
-    stadium: "#3b82f6",                  // Blue
-    arena: "#8b5cf6",                    // Violet
-    "amusement_park": "#f472b6",         // Light pink
-    zoo: "#22c55e",                      // Green
-    museum: "#8b5cf6",                   // Violet
-    gallery: "#fb923c",                  // Light orange
-    "convention_center": "#3b82f6",      // Blue
-    
-    // === Variations and Aliases ===
-    "auto_repair": "#047857",            // Same as automotive_repair
-    "car_repair": "#047857",             // Alias
-    "vehicle_repair": "#047857",         // Alias
-    "beauty_spa": "#db2777",             // Variation
-    "spa_salon": "#be123c",              // Variation
-    "health_spa": "#14b8a6",             // Variation
-    "nail_spa": "#f9a8d4",               // Variation
-    "day_spa": "#e11d48",                // Variation
-    "medical_spa": "#8b5cf6",            // Variation
-    "wellness_center": "#22c55e",        // Variation
-    "fitness_gym": "#047857",            // Variation
-    "workout_gym": "#22c55e",            // Variation
-    "sports_gym": "#10b981",             // Variation
-    "family_restaurant": "#f37129",      // Variation
-    "fine_dining": "#7c2d12",            // Variation
-    "casual_dining": "#ea580c",          // Variation
-    "quick_service": "#fed7aa",          // Variation
-    "coffee_house": "#78350f",           // Variation
-    "coffee_bar": "#92400e",             // Variation
-    "espresso_bar": "#713f12",           // Variation
-    "internet_cafe": "#422006",          // Variation
-    "juice_bar": "#84cc16",              // Variation
-    "smoothie_bar": "#22c55e",           // Variation
-    "wine_bar": "#7c2d12",               // Variation
-    "cocktail_bar": "#dc2626",           // Variation
-    "sports_bar": "#1e40af",             // Variation
-    "neighborhood_bar": "#92400e",       // Variation
-    "dive_bar": "#422006",               // Variation
-    "lounge": "#8b5cf6",                 // Variation
-    "nightclub": "#ec4899",              // Variation
-    "dance_club": "#f472b6",             // Variation
-  };
+  // ColorBrewer2 Set3 12-color qualitative palette + extensions for more variety
+  const COLORBREWER_PALETTE = [
+    '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462',
+    '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
+    // Extended with complementary colors for more categories
+    '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
+    '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
+    '#f781bf', '#999999', '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3',
+    '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3', '#8dd3c7', '#ffffb3'
+  ];
 
   // Process the places data to count categories
   const categoryCounts: Record<string, number> = {};
@@ -1482,22 +1320,38 @@ function CategoryPieChart({ data }: { data: any }) {
   const chartData: number[] = [];
   const chartColors: string[] = [];
 
-  Object.entries(categoryCounts)
+  // Sort categories by count and show top 10, group rest as "Other"
+  const sortedCategories = Object.entries(categoryCounts)
     .filter(([_, count]) => count > 0)
-    .sort(([,a], [,b]) => b - a) // Sort by count descending
-    .forEach(([category, count]) => {
-      // Format category name for display
-      const displayName = category.split('_').map(word => 
-        word.charAt(0).toUpperCase() + word.slice(1)
-      ).join(' ');
-      
-      chartLabels.push(`${displayName} (${count})`);
-      chartData.push(count);
-      
-      // Try to find color in extended colors first, then fall back
-      const normalizedCategory = category.toLowerCase().replace(/ /g, '_');
-      chartColors.push(EXTENDED_COLORS[normalizedCategory] || EXTENDED_COLORS.other);
-    });
+    .sort(([,a], [,b]) => b - a); // Sort by count descending
+
+  const TOP_CATEGORIES_COUNT = 10;
+  const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
+  const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
+
+  // Add top categories
+  topCategories.forEach(([category, count], index) => {
+    // Format category name for display
+    const displayName = category.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+    
+    chartLabels.push(`${displayName} (${count})`);
+    chartData.push(count);
+    chartColors.push(COLORBREWER_PALETTE[index % COLORBREWER_PALETTE.length]);
+  });
+
+  // Group remaining categories as "Other" if there are any
+  if (otherCategories.length > 0) {
+    const otherCount = otherCategories.reduce((sum, [_, count]) => sum + count, 0);
+    const otherCategoryNames = otherCategories.map(([category]) => 
+      category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+    );
+    
+    chartLabels.push(`Other (${otherCount})`);
+    chartData.push(otherCount);
+    chartColors.push('#999999'); // Gray for "Other"
+  }
 
   const chartConfig = {
     labels: chartLabels,
@@ -1516,32 +1370,55 @@ function CategoryPieChart({ data }: { data: any }) {
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    cutout: '70%', // Makes it a thin donut chart
     plugins: {
       legend: {
         position: 'right' as const,
         labels: {
-          padding: 20,
+          padding: 15,
           font: {
             family: ginkgoTheme.typography.fontFamily.body,
-            size: 12
+            size: 11
           },
           color: ginkgoTheme.colors.text.primary,
           usePointStyle: true,
-          pointStyle: 'circle'
+          pointStyle: 'circle',
+          boxWidth: 12,
+          boxHeight: 12
         }
       },
       tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        backgroundColor: 'rgba(0, 0, 0, 0.9)',
         titleColor: 'white',
         bodyColor: 'white',
         borderColor: ginkgoTheme.colors.primary.green,
         borderWidth: 1,
         cornerRadius: 8,
         displayColors: true,
+        titleFont: {
+          size: 13,
+          weight: 'bold'
+        },
+        bodyFont: {
+          size: 12
+        },
+        padding: 12,
         callbacks: {
           label: function(context: any) {
             const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
             const percentage = ((context.raw / total) * 100).toFixed(1);
+            
+            // For "Other" category, show additional detail in tooltip
+            if (context.label.startsWith('Other')) {
+              const otherCategoryNames = otherCategories.map(([category]) => 
+                category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+              );
+              return [
+                `${context.label}: ${percentage}%`,
+                `Includes: ${otherCategoryNames.slice(0, 5).join(', ')}${otherCategoryNames.length > 5 ? '...' : ''}`
+              ];
+            }
+            
             return `${context.label}: ${percentage}%`;
           }
         }
@@ -1569,9 +1446,37 @@ function CategoryPieChart({ data }: { data: any }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      height: '400px'
+      height: '400px',
+      position: 'relative'
     }}>
       <Pie data={chartConfig} options={chartOptions} />
+      
+      {/* Center text for donut chart */}
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        left: '35%', // Adjusted for legend on right
+        transform: 'translate(-50%, -50%)',
+        textAlign: 'center',
+        pointerEvents: 'none'
+      }}>
+        <div style={{
+          fontSize: '28px',
+          fontWeight: 'bold',
+          color: ginkgoTheme.colors.primary.navy,
+          fontFamily: ginkgoTheme.typography.fontFamily.heading
+        }}>
+          {data.totalPlaces}
+        </div>
+        <div style={{
+          fontSize: '12px',
+          color: ginkgoTheme.colors.text.secondary,
+          fontFamily: ginkgoTheme.typography.fontFamily.body,
+          marginTop: '4px'
+        }}>
+          Total Businesses
+        </div>
+      </div>
     </div>
   );
 }
