@@ -20,15 +20,104 @@ const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox
 type FeatureCollection = GeoJSON.FeatureCollection;
 
 const CATEGORY_COLORS: Record<string, string> = {
+  // === Base Categories ===
   food_and_drink: "#f37129",     // Ginkgo orange
   shopping: "#0feaa6",            // Ginkgo green
   health: "#034744",              // Ginkgo dark teal
   education: "#162e54",           // Ginkgo navy
-  entertainment: "#a1c6bb",       // Ginkgo soft green
-  transportation: "#72b7b2",      
-  finance: "#dfebef",             // Ginkgo light gray
-  government: "#9e765f",
-  other: "#e2f2ee",               // Ginkgo very light green
+  entertainment: "#ec4899",       // Pink for better visibility
+  transportation: "#06b6d4",      // Cyan for better visibility
+  finance: "#8b5cf6",             // Purple for better visibility
+  government: "#9e765f",          // Brown
+  other: "#6b7280",               // Gray for uncategorized
+  retail: "#0feaa6",              // Map retail to green
+  restaurant: "#f37129",          // Map restaurant to orange
+  service: "#034744",             // Map service to dark teal
+  
+  // === All Categories from Pie Chart ===
+  "beauty_salon": "#e11d48",           // Rose
+  "professional_services": "#3b82f6", // Blue  
+  "tattoo_and_piercing": "#a855f7",   // Purple
+  "community_services_non_profits": "#22c55e", // Green
+  "landmark_and_historical_building": "#8b5cf6", // Violet
+  "automotive_repair": "#047857",       // Dark green
+  "coffee_shop": "#78350f",            // Dark brown
+  "counseling_and_mental_health": "#831843", // Dark pink
+  "gym": "#047857",                    // Emerald
+  "art_gallery": "#fb923c",            // Light orange
+  "beauty_and_spa": "#db2777",         // Pink
+  caterer: "#f97316",                  // Orange
+  bakery: "#ea580c",                   // Dark orange
+  "advertising_agency": "#f59e0b",     // Amber
+  brewery: "#ca8a04",                  // Amber
+  "bicycle_shop": "#9333ea",           // Violet
+  "carpet_store": "#7c3aed",           // Purple
+  chiropractor: "#4338ca",             // Indigo
+  massage: "#15803d",                  // Green
+  plumbing: "#365314",                 // Olive
+  "printing_services": "#6366f1",      // Indigo
+  "real_estate_agent": "#422006",      // Dark brown
+  "thai_restaurant": "#7c2d12",        // Rust
+  "asian_restaurant": "#db2777",       // Pink
+  "bank_credit_union": "#c026d3",      // Fuchsia
+  distillery: "#1e40af",               // Blue
+  "engineering_services": "#1e3a8a",   // Navy
+  "fashion_accessories_store": "#0c4a6e", // Dark blue
+  "flowers_and_gifts_shop": "#075985", // Sky blue
+  "furniture_store": "#0e7490",        // Dark cyan
+  "grocery_store": "#0d9488",          // Teal
+  
+  // === Additional Common Categories ===
+  bar: "#dc2626",                      // Red
+  winery: "#7c2d12",                   // Brown
+  contractor: "#0891b2",               // Dark cyan
+  electrician: "#0e7490",              // Teal
+  "appliance_repair_service": "#059669", // Emerald
+  "auto_glass_service": "#10b981",     // Green
+  "hardware_store": "#84cc16",         // Lime
+  theatre: "#ec4899",                  // Pink
+  "topic_concert_venue": "#f43f5e",    // Rose
+  "naturopathic_holistic": "#14b8a6",  // Teal
+  "event_photography": "#f87171",      // Light red
+  acupuncture: "#c084fc",              // Light purple
+  "arts_and_crafts": "#fbbf24",        // Yellow
+  bartender: "#a78bfa",                // Light violet
+  "building_supply_store": "#94a3b8",  // Slate
+  "clothing_store": "#93c5fd",         // Light blue
+  "construction_services": "#6ee7b7",  // Light green
+  "fast_food_restaurant": "#fed7aa",   // Light orange
+  
+  // === More Common Business Types ===
+  doctor: "#8b5cf6",                   // Violet
+  spas: "#be123c",                     // Crimson
+  "american_restaurant": "#ea580c",    // Dark orange
+  "chinese_restaurant": "#dc2626",     // Red
+  "sushi_restaurant": "#0891b2",       // Cyan
+  "wig_store": "#a855f7",              // Purple
+  "antique_store": "#92400e",          // Dark orange
+  apartments: "#6b7280",               // Gray
+  "property_management": "#374151",    // Dark gray
+  "mattress_store": "#7c3aed",         // Purple
+  hotel: "#ec4899",                    // Pink
+  "funeral_services_and_cemeteries": "#4b5563", // Gray
+  "cannabis_clinic": "#22c55e",        // Green
+  "cannabis_dispensary": "#16a34a",    // Dark green
+  "child_care_and_day_care": "#fbbf24", // Yellow
+  "clothing_rental": "#d946ef",        // Magenta
+  "community_services_non_profit": "#10b981", // Green (variation)
+  arms: "#991b1b",                     // Dark red
+  "boxing_class": "#dc2626",           // Red
+  "buffet_restaurant": "#f97316",      // Orange
+  cafe: "#78350f",                     // Dark brown
+  
+  // === Generic Fallbacks ===
+  bank: "#1f2937",                     // Dark gray
+  "credit_union": "#374151",           // Gray
+  spa: "#be123c",                      // Crimson
+  repair: "#0891b2",                   // Cyan
+  shop: "#10b981",                     // Green
+  store: "#84cc16",                    // Lime
+  services: "#3b82f6",                 // Blue
 };
 
 export default function Root() {
@@ -56,6 +145,7 @@ export default function Root() {
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     mapRef.current = map;
 
+
     // Enhanced polygon drawing with better UX
     let pts: mapboxgl.LngLat[] = [];
     let isDrawing = false;
@@ -68,13 +158,13 @@ export default function Root() {
           id: "drawing-poly-fill",
           type: "fill",
           source: "drawing-poly",
-          paint: { "fill-color": "#0feaa6", "fill-opacity": 0.15 },
+          paint: { "fill-color": "#ababab", "fill-opacity": 0.2 },
         });
         map.addLayer({
           id: "drawing-poly-line",
           type: "line",
           source: "drawing-poly",
-          paint: { "line-color": "#0feaa6", "line-width": 3 },
+          paint: { "line-color": "#EE7B2C", "line-width": 1, "line-opacity": 0.5 },
         });
       }
 
@@ -89,17 +179,18 @@ export default function Root() {
             "circle-radius": [
               "case",
               ["==", ["get", "isFirst"], true],
-              8, // First point larger
-              6, // Other points
+              6, // First point larger
+              4, // Other points smaller
             ],
             "circle-color": [
               "case",
               ["==", ["get", "isFirst"], true],
               "#f37129", // First point orange (Ginkgo orange)
-              "#0feaa6", // Other points green (Ginkgo green)
+              "#EE7B2C", // Other points use same orange as border
             ],
             "circle-stroke-width": 2,
             "circle-stroke-color": "#ffffff",
+            "circle-opacity": 0.8
           },
         });
       }
@@ -115,9 +206,9 @@ export default function Root() {
           type: "circle",
           source: "first-point-hover",
           paint: {
-            "circle-radius": 12,
+            "circle-radius": 10,
             "circle-color": "#f37129",
-            "circle-opacity": 0.3,
+            "circle-opacity": 0.2,
           },
         });
       }
@@ -302,7 +393,11 @@ export default function Root() {
     map.on("mousemove", onMouseMove);
     map.on("dblclick", onDblClick);
     map.on("contextmenu", onContextMenu);
-    map.on("load", setupDrawingLayers);
+    
+    // Setup drawing layers when map is ready
+    map.on("load", () => {
+      setupDrawingLayers();
+    });
 
     // Add keyboard listener to document
     document.addEventListener("keydown", onKeyDown);
@@ -762,6 +857,8 @@ export default function Root() {
           }}
           mapVisible={true}
           onFullReportToggle={(isFullReport) => setShowFullReport(isFullReport)}
+          polygon={polygon}
+          mapboxToken={MAPBOX_TOKEN}
         />
       )}
     </div>

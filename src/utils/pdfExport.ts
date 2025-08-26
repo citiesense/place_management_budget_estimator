@@ -7,14 +7,276 @@ interface PDFExportData {
   placeTypology: string;
   serviceDemands: any;
   params: BudgetParameters;
+  polygon?: any; // Optional polygon data for map
+  mapboxToken?: string; // Optional Mapbox token for static map
 }
 
-export function generateBIDReportPDF({
+// Helper function to generate static map URL with polygon overlay and business dots
+function generateStaticMapURL(polygon: any, mapboxToken: string, places?: any[]): string {
+  if (!polygon || !polygon.features || !polygon.features.length) {
+    console.error('No polygon data provided for map generation');
+    return '';
+  }
+
+  // Get polygon coordinates
+  const coordinates = polygon.features[0].geometry.coordinates[0];
+  
+  // Calculate bounding box and center
+  let minLng = coordinates[0][0], maxLng = coordinates[0][0];
+  let minLat = coordinates[0][1], maxLat = coordinates[0][1];
+  
+  coordinates.forEach(([lng, lat]: number[]) => {
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+  });
+  
+  const centerLng = (minLng + maxLng) / 2;
+  const centerLat = (minLat + maxLat) / 2;
+  
+  // Calculate appropriate zoom level based on polygon size
+  const lngDiff = maxLng - minLng;
+  const latDiff = maxLat - minLat;
+  const maxDiff = Math.max(lngDiff, latDiff);
+  
+  let zoom = 15; // Default zoom
+  if (maxDiff > 0.05) zoom = 12;
+  else if (maxDiff > 0.02) zoom = 13;
+  else if (maxDiff > 0.01) zoom = 14;
+  else if (maxDiff > 0.005) zoom = 15;
+  else zoom = 16;
+  
+  // Create GeoJSON FeatureCollection with polygon and business dots
+  const features: any[] = [];
+  
+  // Add polygon
+  features.push({
+    type: "Feature",
+    properties: {
+      "stroke": "#EE7B2C",
+      "stroke-width": 2,
+      "stroke-opacity": 1,
+      "fill": "#EE7B2C",
+      "fill-opacity": 0.1
+    },
+    geometry: {
+      type: "Polygon",
+      coordinates: [coordinates]
+    }
+  });
+  
+  // Add business location dots if places data is provided
+  if (places && places.length > 0) {
+    // Category colors map (matching the web app)
+    const CATEGORY_COLORS: Record<string, string> = {
+      // Base categories
+      food_and_drink: "#f37129",
+      shopping: "#0feaa6", 
+      health: "#034744",
+      education: "#162e54",
+      entertainment: "#ec4899",
+      transportation: "#06b6d4",
+      finance: "#8b5cf6",
+      government: "#9e765f",
+      other: "#6b7280",
+      
+      // Accommodation
+      accommodation: "#ec4899",
+      hotel: "#ec4899",
+      
+      // Food & Drink
+      restaurant: "#f37129",
+      american_restaurant: "#ea580c",
+      chinese_restaurant: "#dc2626",
+      thai_restaurant: "#7c2d12",
+      asian_restaurant: "#db2777",
+      sushi_restaurant: "#0891b2",
+      argentine_restaurant: "#ea580c",
+      buffet_restaurant: "#f97316",
+      fast_food_restaurant: "#fed7aa",
+      coffee_shop: "#78350f",
+      cafe: "#78350f",
+      bar: "#dc2626",
+      brewery: "#ca8a04",
+      distillery: "#1e40af",
+      winery: "#7c2d12",
+      caterer: "#f97316",
+      bakery: "#ea580c",
+      
+      // Services
+      professional_services: "#3b82f6",
+      advertising_agency: "#f59e0b",
+      architectural_designer: "#3b82f6",
+      engineering_services: "#1e3a8a",
+      real_estate_agent: "#422006",
+      printing_services: "#6366f1",
+      
+      // Health & Beauty
+      beauty_salon: "#e11d48",
+      beauty_and_spa: "#db2777",
+      doctor: "#8b5cf6",
+      spas: "#be123c",
+      spa: "#be123c", 
+      chiropractor: "#4338ca",
+      massage: "#15803d",
+      acupuncture: "#c084fc",
+      naturopathic_holistic: "#14b8a6",
+      counseling_and_mental_health: "#831843",
+      
+      // Finance
+      bank: "#1f2937",
+      bank_credit_union: "#c026d3",
+      credit_union: "#374151",
+      
+      // Entertainment & Arts
+      adult_entertainment: "#ec4899",
+      art_gallery: "#fb923c",
+      theatre: "#ec4899",
+      topic_concert_venue: "#f43f5e",
+      
+      // Fitness
+      gym: "#047857",
+      boxing_class: "#dc2626",
+      
+      // Retail & Shopping
+      retail: "#0feaa6",
+      shopping: "#0feaa6",
+      antique_store: "#92400e",
+      bicycle_shop: "#9333ea",
+      carpet_store: "#7c3aed",
+      clothing_store: "#93c5fd",
+      clothing_rental: "#d946ef",
+      fashion_accessories_store: "#0c4a6e",
+      flowers_and_gifts_shop: "#075985",
+      furniture_store: "#0e7490",
+      grocery_store: "#0d9488",
+      hardware_store: "#84cc16",
+      mattress_store: "#7c3aed",
+      wig_store: "#a855f7",
+      
+      // Other Services
+      animal_shelter: "#22c55e",
+      automotive_repair: "#047857",
+      auto_glass_service: "#10b981",
+      appliance_repair_service: "#059669",
+      contractor: "#0891b2",
+      construction_services: "#6ee7b7",
+      electrician: "#0e7490",
+      plumbing: "#365314",
+      repair: "#0891b2",
+      
+      // Community & Government
+      community_services_non_profits: "#22c55e",
+      community_services_non_profit: "#10b981",
+      landmark_and_historical_building: "#8b5cf6",
+      
+      // Miscellaneous
+      tattoo_and_piercing: "#a855f7",
+      event_photography: "#f87171",
+      arts_and_crafts: "#fbbf24",
+      bartender: "#a78bfa",
+      building_supply_store: "#94a3b8",
+      cannabis_clinic: "#22c55e",
+      cannabis_dispensary: "#16a34a",
+      child_care_and_day_care: "#fbbf24",
+      funeral_services_and_cemeteries: "#4b5563",
+      apartments: "#6b7280",
+      property_management: "#374151",
+      arms: "#991b1b"
+    };
+    
+    // Limit to first 15 places to avoid URL length issues and check coordinates
+    places.slice(0, 15).forEach(place => {
+      // Check if place has valid coordinates
+      const lng = place.geometry?.coordinates?.[0] || place.lng || place.longitude;
+      const lat = place.geometry?.coordinates?.[1] || place.lat || place.latitude;
+      
+      if (lng && lat && !isNaN(lng) && !isNaN(lat)) {
+        const category = place.properties?.category?.toLowerCase() || place.category?.toLowerCase() || 'other';
+        const color = CATEGORY_COLORS[category] || CATEGORY_COLORS.other;
+        
+        features.push({
+          type: "Feature",
+          properties: {
+            "marker-color": color,
+            "marker-size": "small"
+          },
+          geometry: {
+            type: "Point",
+            coordinates: [lng, lat]
+          }
+        });
+      }
+    });
+  }
+  
+  const geoJsonOverlay = {
+    type: "FeatureCollection",
+    features: features
+  };
+  
+  // Mapbox Static API URL with GeoJSON overlay
+  const width = 600;
+  const height = 400;
+  // Use the same map style as the web app
+  const mapStyle = import.meta.env.VITE_MAPBOX_STYLE || 'mapbox/streets-v12';
+  // Remove 'mapbox://' prefix if present for Static API
+  const style = mapStyle.replace('mapbox://styles/', '');
+  
+  // Use geojson parameter with all features
+  const geoJsonParam = encodeURIComponent(JSON.stringify(geoJsonOverlay));
+  const url = `https://api.mapbox.com/styles/v1/${style}/static/geojson(${geoJsonParam})/${centerLng},${centerLat},${zoom}/${width}x${height}?access_token=${mapboxToken}`;
+  
+  // If URL is too long (over 8000 chars), fallback to just the polygon
+  if (url.length > 8000) {
+    const polygonOnlyGeoJSON = {
+      type: "FeatureCollection",
+      features: [features[0]] // Just the polygon
+    };
+    const simplifiedParam = encodeURIComponent(JSON.stringify(polygonOnlyGeoJSON));
+    const fallbackUrl = `https://api.mapbox.com/styles/v1/${style}/static/geojson(${simplifiedParam})/${centerLng},${centerLat},${zoom}/${width}x${height}?access_token=${mapboxToken}`;
+    return fallbackUrl;
+  }
+  
+  return url;
+}
+
+// Helper function to load image and convert to base64
+async function loadImageAsBase64(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const blob = await response.blob();
+    
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result);
+      };
+      reader.onerror = () => {
+        reject(reader.error);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function generateBIDReportPDF({
   data,
   budget,
   placeTypology,
   serviceDemands,
-  params
+  params,
+  polygon,
+  mapboxToken
 }: PDFExportData) {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -270,6 +532,78 @@ export function generateBIDReportPDF({
       `${count} businesses (${percentage}%)`
     );
   });
+
+  // District Map (if polygon and mapbox token provided)
+  if (polygon && mapboxToken) {
+    yPos += 8;
+    addSection('District Overview Map');
+    
+    try {
+      // Pass places data from reportData for business dots
+      const places = data.places || [];
+      const mapUrl = generateStaticMapURL(polygon, mapboxToken, places);
+      
+      if (mapUrl) {
+        const mapImage = await loadImageAsBase64(mapUrl);
+        
+        if (mapImage) {
+          // Check if we need a new page
+          if (yPos > 180) {
+            doc.addPage();
+            yPos = 20;
+          }
+          
+          // Add the map image
+          const mapWidth = 160; // mm
+          const mapHeight = 100; // mm
+          const mapX = (216 - mapWidth) / 2; // Center horizontally
+          
+          try {
+            // Add the map image with polygon overlay
+            doc.addImage(mapImage, 'PNG', mapX, yPos, mapWidth, mapHeight);
+            yPos += mapHeight + 5;
+          } catch (imageError) {
+            // Try JPEG format instead
+            try {
+              doc.addImage(mapImage, 'JPEG', mapX, yPos, mapWidth, mapHeight);
+              yPos += mapHeight + 5;
+            } catch (jpegError) {
+              doc.setFontSize(9);
+              doc.setTextColor(...colors.lightText);
+              doc.text('Map image could not be embedded in this report.', leftMargin, yPos);
+              yPos += 8;
+            }
+          }
+          
+          // Add map caption
+          doc.setFontSize(8);
+          doc.setTextColor(...colors.lightText);
+          doc.text(
+            'District boundary shown with analysis polygon. Map data © Mapbox, © OpenStreetMap contributors.',
+            105,
+            yPos,
+            { align: 'center' }
+          );
+          yPos += 8;
+        } else {
+          doc.setFontSize(9);
+          doc.setTextColor(...colors.lightText);
+          doc.text('Map could not be loaded for this report.', leftMargin, yPos);
+          yPos += 8;
+        }
+      } else {
+        doc.setFontSize(9);
+        doc.setTextColor(...colors.lightText);
+        doc.text('Map URL could not be generated for this report.', leftMargin, yPos);
+        yPos += 8;
+      }
+    } catch (error) {
+      doc.setFontSize(9);
+      doc.setTextColor(...colors.lightText);
+      doc.text('Map could not be loaded for this report.', leftMargin, yPos);
+      yPos += 8;
+    }
+  }
   
   // PAGE 2: Service Details
   doc.addPage();
@@ -429,7 +763,7 @@ export function generateBIDReportPDF({
 }
 
 // Generate PDF for email (returns base64)
-export function generatePDFForEmail(data: PDFExportData) {
+export async function generatePDFForEmail(data: PDFExportData) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
