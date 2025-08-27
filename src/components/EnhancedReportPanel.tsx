@@ -1,20 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   BudgetParameters,
   DEFAULT_BUDGET_PARAMS,
   calculateBudget,
   determinePlaceTypology,
-  getServiceDemandIndicators
-} from '../utils/budgetCalculations';
-import { generateBIDReportPDF, generatePDFForEmail } from '../utils/pdfExport';
-import { ginkgoTheme } from '../styles/ginkgoTheme';
-import { Pie } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend
-} from 'chart.js';
+  getServiceDemandIndicators,
+} from "../utils/budgetCalculations";
+import { generateBIDReportPDF, generatePDFForEmail } from "../utils/pdfExport";
+import { ginkgoTheme } from "../styles/ginkgoTheme";
+import { CATEGORY_COLORS, getCategoryColor } from "../constants/categoryColors";
+import { Pie } from "react-chartjs-2";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 
 // Register Chart.js components
 ChartJS.register(ArcElement, Tooltip, Legend);
@@ -28,11 +24,20 @@ interface EnhancedReportPanelProps {
   mapboxToken?: string; // For PDF map generation
 }
 
-export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullReportToggle, polygon, mapboxToken }: EnhancedReportPanelProps) {
+export function EnhancedReportPanel({
+  data,
+  onClose,
+  mapVisible = true,
+  onFullReportToggle,
+  polygon,
+  mapboxToken,
+}: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
-  const [activeTab, setActiveTab] = useState<'executive' | 'details' | 'parameters'>('executive');
+  const [activeTab, setActiveTab] = useState<
+    "executive" | "details" | "parameters"
+  >("executive");
   const [showFullReport, setShowFullReport] = useState(!mapVisible);
-  
+
   // Calculate budget with current parameters
   const budget = calculateBudget(
     params,
@@ -41,8 +46,11 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
     data.perimeterFt || data.areaAcres * 1320, // Estimate if not provided
     data.categoryBreakdown
   );
-  
-  const placeTypology = determinePlaceTypology(data.categoryBreakdown, data.totalPlaces);
+
+  const placeTypology = determinePlaceTypology(
+    data.categoryBreakdown,
+    data.totalPlaces
+  );
   const serviceDemands = getServiceDemandIndicators(
     data.totalPlaces,
     data.areaAcres,
@@ -50,12 +58,12 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
     budget.cleanIntensity,
     budget.nightIntensity
   );
-  
+
   // Update parameter
   const updateParam = (key: keyof BudgetParameters, value: any) => {
-    setParams(prev => ({ ...prev, [key]: value }));
+    setParams((prev) => ({ ...prev, [key]: value }));
   };
-  
+
   // Export to PDF
   const exportToPDF = async () => {
     await generateBIDReportPDF({
@@ -65,33 +73,36 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
       serviceDemands,
       params,
       polygon,
-      mapboxToken
+      mapboxToken,
     });
   };
-  
+
   // Share via email
   const [showShareModal, setShowShareModal] = useState(false);
-  const [emailList, setEmailList] = useState('');
+  const [emailList, setEmailList] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
-  
+
   const handleShareReport = async () => {
     if (!emailList.trim()) {
-      alert('Please enter at least one email address');
+      alert("Please enter at least one email address");
       return;
     }
-    
+
     // Validate email format (basic validation)
-    const emails = emailList.split(',').map(email => email.trim()).filter(email => email);
+    const emails = emailList
+      .split(",")
+      .map((email) => email.trim())
+      .filter((email) => email);
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const invalidEmails = emails.filter(email => !emailRegex.test(email));
-    
+    const invalidEmails = emails.filter((email) => !emailRegex.test(email));
+
     if (invalidEmails.length > 0) {
-      alert(`Invalid email addresses: ${invalidEmails.join(', ')}`);
+      alert(`Invalid email addresses: ${invalidEmails.join(", ")}`);
       return;
     }
-    
+
     setShareLoading(true);
-    
+
     try {
       // Generate PDF data as base64
       const pdfResponse = await generatePDFForEmail({
@@ -99,14 +110,14 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
         budget,
         placeTypology,
         serviceDemands,
-        params
+        params,
       });
-      
+
       // Send email via Netlify function
-      const response = await fetch('/.netlify/functions/send-email', {
-        method: 'POST',
+      const response = await fetch("/.netlify/functions/send-email", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           emails: emails,
@@ -114,74 +125,85 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
             placeTypology,
             totalPlaces: data.totalPlaces,
             areaAcres: data.areaAcres.toFixed(1),
-            totalBudget: budget.total
+            totalBudget: budget.total,
           },
-          pdfData: pdfResponse.base64
+          pdfData: pdfResponse.base64,
         }),
       });
-      
+
       if (response.ok) {
-        alert(`Report successfully sent to ${emails.length} recipient${emails.length > 1 ? 's' : ''}!`);
+        alert(
+          `Report successfully sent to ${emails.length} recipient${
+            emails.length > 1 ? "s" : ""
+          }!`
+        );
         setShowShareModal(false);
-        setEmailList('');
+        setEmailList("");
       } else {
         const error = await response.json();
-        throw new Error(error.message || 'Failed to send email');
+        throw new Error(error.message || "Failed to send email");
       }
     } catch (error) {
-      console.error('Error sharing report:', error);
-      alert('Failed to send report. Please try again.');
+      console.error("Error sharing report:", error);
+      alert("Failed to send report. Please try again.");
     } finally {
       setShareLoading(false);
     }
   };
-  
+
   const panelStyle: React.CSSProperties = {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     right: 0,
-    width: mapVisible && !showFullReport ? '50%' : '100%',
-    height: '100%',
-    backgroundColor: 'white',
-    borderLeft: mapVisible ? '2px solid #e2e8f0' : 'none',
-    boxShadow: mapVisible ? '-4px 0 10px rgba(0,0,0,0.1)' : 'none',
-    display: 'flex',
-    flexDirection: 'column',
-    transition: 'width 0.3s ease',
+    width: mapVisible && !showFullReport ? "50%" : "100%",
+    height: "100%",
+    backgroundColor: "white",
+    borderLeft: mapVisible ? "2px solid #e2e8f0" : "none",
+    boxShadow: mapVisible ? "-4px 0 10px rgba(0,0,0,0.1)" : "none",
+    display: "flex",
+    flexDirection: "column",
+    transition: "width 0.3s ease",
     zIndex: 1000,
   };
-  
+
   return (
     <div style={panelStyle}>
       {/* Header */}
-      <div style={{
-        padding: '1rem 1.5rem',
-        borderBottom: `2px solid ${ginkgoTheme.colors.secondary.lightGray}`,
-        backgroundColor: ginkgoTheme.colors.background.main,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
+      <div
+        style={{
+          padding: "1rem 1.5rem",
+          borderBottom: `2px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+          backgroundColor: ginkgoTheme.colors.background.main,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <div>
-          <h2 style={{ 
-            margin: 0, 
-            color: ginkgoTheme.colors.primary.navy, 
-            fontSize: '24px',
-            fontFamily: ginkgoTheme.typography.fontFamily.heading,
-            fontWeight: 600
-          }}>
+          <h2
+            style={{
+              margin: 0,
+              color: ginkgoTheme.colors.primary.navy,
+              fontSize: "24px",
+              fontFamily: ginkgoTheme.typography.fontFamily.heading,
+              fontWeight: 600,
+            }}
+          >
             BID Budget Analysis
           </h2>
-          <p style={{ 
-            margin: '0.25rem 0 0', 
-            color: ginkgoTheme.colors.text.secondary, 
-            fontSize: '14px',
-            fontFamily: ginkgoTheme.typography.fontFamily.body
-          }}>
-            {placeTypology} • {data.totalPlaces} businesses • {data.areaAcres.toFixed(1)} acres
+          <p
+            style={{
+              margin: "0.25rem 0 0",
+              color: ginkgoTheme.colors.text.secondary,
+              fontSize: "14px",
+              fontFamily: ginkgoTheme.typography.fontFamily.body,
+            }}
+          >
+            {placeTypology} • {data.totalPlaces} businesses •{" "}
+            {data.areaAcres.toFixed(1)} acres
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           {mapVisible && (
             <button
               onClick={() => {
@@ -190,56 +212,62 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
                 onFullReportToggle?.(newFullReportState);
               }}
               style={{
-                padding: '12px 24px',
-                backgroundColor: 'transparent',
+                padding: "12px 24px",
+                backgroundColor: "transparent",
                 border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px",
                 fontFamily: ginkgoTheme.typography.fontFamily.body,
                 color: ginkgoTheme.colors.text.secondary,
-                transition: 'all 0.2s ease'
+                transition: "all 0.2s ease",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = ginkgoTheme.colors.secondary.veryLightGreen;
-                e.currentTarget.style.borderColor = ginkgoTheme.colors.primary.green;
+                e.currentTarget.style.backgroundColor =
+                  ginkgoTheme.colors.secondary.veryLightGreen;
+                e.currentTarget.style.borderColor =
+                  ginkgoTheme.colors.primary.green;
                 e.currentTarget.style.color = ginkgoTheme.colors.primary.green;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.borderColor = ginkgoTheme.colors.secondary.lightGray;
+                e.currentTarget.style.backgroundColor = "transparent";
+                e.currentTarget.style.borderColor =
+                  ginkgoTheme.colors.secondary.lightGray;
                 e.currentTarget.style.color = ginkgoTheme.colors.text.secondary;
               }}
             >
-              {showFullReport ? 'Split View' : 'Full Report'}
+              {showFullReport ? "Split View" : "Full Report"}
             </button>
           )}
           <button
             onClick={exportToPDF}
             style={{
-              padding: '12px 24px',
+              padding: "12px 24px",
               backgroundColor: ginkgoTheme.colors.primary.orange,
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
               fontWeight: 600,
               fontFamily: ginkgoTheme.typography.fontFamily.body,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.3s ease'
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 234, 166, 0.4)';
+              e.currentTarget.style.backgroundColor =
+                ginkgoTheme.colors.primary.green;
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow =
+                "0 4px 12px rgba(15, 234, 166, 0.4)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.backgroundColor =
+                ginkgoTheme.colors.primary.orange;
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             Export PDF
@@ -247,29 +275,30 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
           <button
             onClick={() => setShowShareModal(true)}
             style={{
-              padding: '12px 24px',
-              backgroundColor: '#162d54', // Navy blue
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px',
+              padding: "12px 24px",
+              backgroundColor: "#162d54", // Navy blue
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "14px",
               fontWeight: 600,
               fontFamily: ginkgoTheme.typography.fontFamily.body,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.3s ease'
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              transition: "all 0.3s ease",
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgb(15, 234, 166)'; // Green hover
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 234, 166, 0.4)';
+              e.currentTarget.style.backgroundColor = "rgb(15, 234, 166)"; // Green hover
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow =
+                "0 4px 12px rgba(15, 234, 166, 0.4)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#162d54'; // Back to navy blue
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.backgroundColor = "#162d54"; // Back to navy blue
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "none";
             }}
           >
             Share Report
@@ -277,52 +306,62 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
           <button
             onClick={onClose}
             style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '1.5rem',
-              cursor: 'pointer',
-              padding: '0.5rem',
-              color: '#64748b'
+              background: "none",
+              border: "none",
+              fontSize: "1.5rem",
+              cursor: "pointer",
+              padding: "0.5rem",
+              color: "#64748b",
             }}
           >
             ✕
           </button>
         </div>
       </div>
-      
+
       {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        borderBottom: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
-        backgroundColor: ginkgoTheme.colors.background.main
-      }}>
-        {(['executive', 'details', 'parameters'] as const).map(tab => (
+      <div
+        style={{
+          display: "flex",
+          borderBottom: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+          backgroundColor: ginkgoTheme.colors.background.main,
+        }}
+      >
+        {(["executive", "details", "parameters"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: activeTab === tab ? 'white' : 'transparent',
-              border: 'none',
-              borderBottom: activeTab === tab ? `2px solid ${ginkgoTheme.colors.primary.navy}` : '2px solid transparent',
-              cursor: 'pointer',
+              padding: "0.75rem 1.5rem",
+              backgroundColor: activeTab === tab ? "white" : "transparent",
+              border: "none",
+              borderBottom:
+                activeTab === tab
+                  ? `2px solid ${ginkgoTheme.colors.primary.navy}`
+                  : "2px solid transparent",
+              cursor: "pointer",
               fontWeight: activeTab === tab ? 600 : 400,
               fontFamily: ginkgoTheme.typography.fontFamily.body,
-              color: activeTab === tab ? ginkgoTheme.colors.primary.navy : ginkgoTheme.colors.text.secondary,
-              textTransform: 'capitalize',
-              transition: 'all 0.2s ease'
+              color:
+                activeTab === tab
+                  ? ginkgoTheme.colors.primary.navy
+                  : ginkgoTheme.colors.text.secondary,
+              textTransform: "capitalize",
+              transition: "all 0.2s ease",
             }}
           >
-            {tab === 'executive' ? 'Executive Summary' :
-             tab === 'details' ? 'Service Details' :
-             'Budget Parameters'}
+            {tab === "executive"
+              ? "Executive Summary"
+              : tab === "details"
+              ? "Service Details"
+              : "Budget Parameters"}
           </button>
         ))}
       </div>
-      
+
       {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
-        {activeTab === 'executive' && (
+      <div style={{ flex: 1, overflowY: "auto", padding: "1.5rem" }}>
+        {activeTab === "executive" && (
           <ExecutiveSummary
             data={data}
             budget={budget}
@@ -330,8 +369,8 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
             serviceDemands={serviceDemands}
           />
         )}
-        
-        {activeTab === 'details' && (
+
+        {activeTab === "details" && (
           <ServiceDetails
             data={data}
             budget={budget}
@@ -339,8 +378,8 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
             params={params}
           />
         )}
-        
-        {activeTab === 'parameters' && (
+
+        {activeTab === "parameters" && (
           <ParameterSliders
             params={params}
             updateParam={updateParam}
@@ -351,42 +390,57 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
 
       {/* Share Modal */}
       {showShareModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '2rem',
-            maxWidth: '600px',
-            width: '95%',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.15)'
-          }}>
-            <h3 style={{ marginTop: 0, color: ginkgoTheme.colors.primary.navy, fontFamily: ginkgoTheme.typography.fontFamily.heading, fontWeight: 600, fontSize: '20px' }}>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "white",
+              borderRadius: "12px",
+              padding: "2rem",
+              maxWidth: "600px",
+              width: "95%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
+            }}
+          >
+            <h3
+              style={{
+                marginTop: 0,
+                color: ginkgoTheme.colors.primary.navy,
+                fontFamily: ginkgoTheme.typography.fontFamily.heading,
+                fontWeight: 600,
+                fontSize: "20px",
+              }}
+            >
               Share BID Report
             </h3>
-            <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>
-              Enter email addresses (separated by commas) to share this budget report as a PDF attachment.
+            <p style={{ color: "#64748b", marginBottom: "1.5rem" }}>
+              Enter email addresses (separated by commas) to share this budget
+              report as a PDF attachment.
             </p>
-            
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '0.5rem', 
-                fontWeight: 600, 
-                color: '#374151' 
-              }}>
+
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "0.5rem",
+                  fontWeight: 600,
+                  color: "#374151",
+                }}
+              >
                 Email Recipients:
               </label>
               <textarea
@@ -394,87 +448,111 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
                 onChange={(e) => setEmailList(e.target.value)}
                 placeholder="john@company.com, mary@board.org, planning@city.gov"
                 style={{
-                  width: '100%',
-                  minHeight: '80px',
-                  padding: '12px 16px',
+                  width: "100%",
+                  minHeight: "80px",
+                  padding: "12px 16px",
                   border: `2px solid ${ginkgoTheme.colors.secondary.lightGray}`,
-                  borderRadius: '6px',
-                  fontSize: '14px',
+                  borderRadius: "6px",
+                  fontSize: "14px",
                   fontFamily: ginkgoTheme.typography.fontFamily.body,
-                  resize: 'vertical',
-                  outline: 'none',
-                  transition: 'all 0.2s ease',
+                  resize: "vertical",
+                  outline: "none",
+                  transition: "all 0.2s ease",
                   backgroundColor: ginkgoTheme.colors.background.main,
-                  boxSizing: 'border-box'
+                  boxSizing: "border-box",
                 }}
                 onFocus={(e) => {
                   e.target.style.borderColor = ginkgoTheme.colors.primary.green;
                   e.target.style.boxShadow = `0 0 0 3px rgba(15, 234, 166, 0.1)`;
                 }}
                 onBlur={(e) => {
-                  e.target.style.borderColor = ginkgoTheme.colors.secondary.lightGray;
-                  e.target.style.boxShadow = 'none';
+                  e.target.style.borderColor =
+                    ginkgoTheme.colors.secondary.lightGray;
+                  e.target.style.boxShadow = "none";
                 }}
               />
-              <div style={{ 
-                fontSize: '0.8rem', 
-                color: '#6b7280', 
-                marginTop: '0.5rem' 
-              }}>
+              <div
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#6b7280",
+                  marginTop: "0.5rem",
+                }}
+              >
                 Tip: Separate multiple email addresses with commas
               </div>
             </div>
-            
-            <div style={{ 
-              backgroundColor: '#f8fafc', 
-              padding: '1rem', 
-              borderRadius: '6px', 
-              marginBottom: '1.5rem' 
-            }}>
-              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: '#374151' }}>
+
+            <div
+              style={{
+                backgroundColor: "#f8fafc",
+                padding: "1rem",
+                borderRadius: "6px",
+                marginBottom: "1.5rem",
+              }}
+            >
+              <h4
+                style={{
+                  margin: "0 0 0.5rem",
+                  fontSize: "0.9rem",
+                  color: "#374151",
+                }}
+              >
                 Report Summary:
               </h4>
-              <div style={{ fontSize: '0.85rem', color: '#6b7280' }}>
-                <div>• {placeTypology} with {data.totalPlaces} businesses</div>
+              <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                <div>
+                  • {placeTypology} with {data.totalPlaces} businesses
+                </div>
                 <div>• {data.areaAcres.toFixed(1)} acres coverage area</div>
-                <div>• ${budget.total.toLocaleString()} annual budget estimate</div>
+                <div>
+                  • ${budget.total.toLocaleString()} annual budget estimate
+                </div>
               </div>
             </div>
-            
-            <div style={{ 
-              display: 'flex', 
-              gap: '1rem', 
-              justifyContent: 'flex-end' 
-            }}>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "1rem",
+                justifyContent: "flex-end",
+              }}
+            >
               <button
                 onClick={() => {
                   setShowShareModal(false);
-                  setEmailList('');
+                  setEmailList("");
                 }}
                 disabled={shareLoading}
                 style={{
-                  padding: '12px 24px',
-                  backgroundColor: 'transparent',
-                  border: `2px solid ${shareLoading ? ginkgoTheme.colors.secondary.lightGray : ginkgoTheme.colors.secondary.lightGray}`,
-                  borderRadius: '6px',
-                  cursor: shareLoading ? 'not-allowed' : 'pointer',
-                  fontSize: '14px',
+                  padding: "12px 24px",
+                  backgroundColor: "transparent",
+                  border: `2px solid ${
+                    shareLoading
+                      ? ginkgoTheme.colors.secondary.lightGray
+                      : ginkgoTheme.colors.secondary.lightGray
+                  }`,
+                  borderRadius: "6px",
+                  cursor: shareLoading ? "not-allowed" : "pointer",
+                  fontSize: "14px",
                   fontWeight: 600,
                   fontFamily: ginkgoTheme.typography.fontFamily.body,
-                  color: shareLoading ? ginkgoTheme.colors.text.secondary : ginkgoTheme.colors.text.secondary,
-                  transition: 'all 0.3s ease',
-                  opacity: shareLoading ? 0.5 : 1
+                  color: shareLoading
+                    ? ginkgoTheme.colors.text.secondary
+                    : ginkgoTheme.colors.text.secondary,
+                  transition: "all 0.3s ease",
+                  opacity: shareLoading ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
                   if (!shareLoading) {
-                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.secondary.lightGray;
-                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.backgroundColor =
+                      ginkgoTheme.colors.secondary.lightGray;
+                    e.currentTarget.style.transform = "translateY(-1px)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!shareLoading) {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.backgroundColor = "transparent";
+                    e.currentTarget.style.transform = "translateY(0)";
                   }
                 }}
               >
@@ -484,50 +562,60 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
                 onClick={handleShareReport}
                 disabled={shareLoading || !emailList.trim()}
                 style={{
-                  padding: '12px 24px',
-                  backgroundColor: shareLoading || !emailList.trim() ? 
-                    ginkgoTheme.colors.secondary.lightGray : 
-                    ginkgoTheme.colors.primary.green,
-                  color: shareLoading || !emailList.trim() ? 
-                    ginkgoTheme.colors.text.secondary : 
-                    'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: shareLoading || !emailList.trim() ? 'not-allowed' : 'pointer',
-                  fontSize: '14px',
+                  padding: "12px 24px",
+                  backgroundColor:
+                    shareLoading || !emailList.trim()
+                      ? ginkgoTheme.colors.secondary.lightGray
+                      : ginkgoTheme.colors.primary.green,
+                  color:
+                    shareLoading || !emailList.trim()
+                      ? ginkgoTheme.colors.text.secondary
+                      : "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor:
+                    shareLoading || !emailList.trim()
+                      ? "not-allowed"
+                      : "pointer",
+                  fontSize: "14px",
                   fontWeight: 600,
                   fontFamily: ginkgoTheme.typography.fontFamily.body,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.3s ease',
-                  opacity: shareLoading || !emailList.trim() ? 0.6 : 1
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  transition: "all 0.3s ease",
+                  opacity: shareLoading || !emailList.trim() ? 0.6 : 1,
                 }}
                 onMouseEnter={(e) => {
                   if (!shareLoading && emailList.trim()) {
-                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.orange;
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(243, 113, 41, 0.4)';
+                    e.currentTarget.style.backgroundColor =
+                      ginkgoTheme.colors.primary.orange;
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow =
+                      "0 4px 12px rgba(243, 113, 41, 0.4)";
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!shareLoading && emailList.trim()) {
-                    e.currentTarget.style.backgroundColor = ginkgoTheme.colors.primary.green;
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.backgroundColor =
+                      ginkgoTheme.colors.primary.green;
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
                   }
                 }}
               >
                 {shareLoading ? (
                   <>
-                    <div style={{
-                      width: '16px',
-                      height: '16px',
-                      border: '2px solid transparent',
-                      borderTop: '2px solid white',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite'
-                    }} />
+                    <div
+                      style={{
+                        width: "16px",
+                        height: "16px",
+                        border: "2px solid transparent",
+                        borderTop: "2px solid white",
+                        borderRadius: "50%",
+                        animation: "spin 1s linear infinite",
+                      }}
+                    />
                     Sending...
                   </>
                 ) : (
@@ -552,29 +640,36 @@ export function EnhancedReportPanel({ data, onClose, mapVisible = true, onFullRe
 }
 
 // Executive Summary Component
-function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) {
+function ExecutiveSummary({
+  data,
+  budget,
+  placeTypology,
+  serviceDemands,
+}: any) {
   const getTypologyColor = (typology: string) => {
     const colors: Record<string, string> = {
-      'Retail Core': '#8b5cf6',
-      'Dining District': '#ef4444',
-      'Mixed-Use District': '#0ea5e9',
-      'Diverse Business Mix': '#10b981',
-      'Service Hub': '#f59e0b',
-      'Entertainment Zone': '#ec4899',
-      'General Commercial': '#6b7280'
+      "Retail Core": "#8b5cf6",
+      "Dining District": "#ef4444",
+      "Mixed-Use District": "#0ea5e9",
+      "Diverse Business Mix": "#10b981",
+      "Service Hub": "#f59e0b",
+      "Entertainment Zone": "#ec4899",
+      "General Commercial": "#6b7280",
     };
-    return colors[typology] || '#6b7280';
+    return colors[typology] || "#6b7280";
   };
-  
+
   return (
     <div>
       {/* Key Metrics Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '1rem',
-        marginBottom: '2rem'
-      }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: "1rem",
+          marginBottom: "2rem",
+        }}
+      >
         <MetricCard
           title="Annual Budget"
           value={`$${budget.total.toLocaleString()}`}
@@ -590,8 +685,13 @@ function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) 
         <MetricCard
           title="Service Intensity"
           value={budget.cleanIntensity.toFixed(2)}
-          subtitle={budget.cleanIntensity > 1.15 ? 'High demand' : 
-                   budget.cleanIntensity > 1.05 ? 'Moderate' : 'Standard'}
+          subtitle={
+            budget.cleanIntensity > 1.15
+              ? "High demand"
+              : budget.cleanIntensity > 1.05
+              ? "Moderate"
+              : "Standard"
+          }
           color="#f59e0b"
         />
         <MetricCard
@@ -601,65 +701,115 @@ function ExecutiveSummary({ data, budget, placeTypology, serviceDemands }: any) 
           color={getTypologyColor(placeTypology)}
         />
       </div>
-      
+
       {/* Budget Breakdown */}
-      <div style={{
-        backgroundColor: '#f8fafc',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '2rem'
-      }}>
-        <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#1e293b' }}>
+      <div
+        style={{
+          backgroundColor: "#f8fafc",
+          borderRadius: "8px",
+          padding: "1.5rem",
+          marginBottom: "2rem",
+        }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#1e293b" }}>
           Budget Allocation
         </h3>
         <BudgetBar budget={budget} />
-        <div style={{ marginTop: '1.5rem' }}>
-          <BudgetLineItemWithColor label="Cleaning & Maintenance" value={budget.cleaning} percentage={(budget.cleaning / budget.subtotal * 100).toFixed(0)} color="#0ea5e9" />
-          <BudgetLineItemWithColor label="Safety & Hospitality" value={budget.safety} percentage={(budget.safety / budget.subtotal * 100).toFixed(0)} color="#059669" />
-          <BudgetLineItemWithColor label="Marketing & Events" value={budget.marketing} percentage={(budget.marketing / budget.subtotal * 100).toFixed(0)} color="#f59e0b" />
-          <BudgetLineItemWithColor label="Streetscape Assets" value={budget.assets} percentage={(budget.assets / budget.subtotal * 100).toFixed(0)} color="#8b5cf6" />
+        <div style={{ marginTop: "1.5rem" }}>
+          <BudgetLineItemWithColor
+            label="Cleaning & Maintenance"
+            value={budget.cleaning}
+            percentage={((budget.cleaning / budget.subtotal) * 100).toFixed(0)}
+            color="#0ea5e9"
+          />
+          <BudgetLineItemWithColor
+            label="Safety & Hospitality"
+            value={budget.safety}
+            percentage={((budget.safety / budget.subtotal) * 100).toFixed(0)}
+            color="#059669"
+          />
+          <BudgetLineItemWithColor
+            label="Marketing & Events"
+            value={budget.marketing}
+            percentage={((budget.marketing / budget.subtotal) * 100).toFixed(0)}
+            color="#f59e0b"
+          />
+          <BudgetLineItemWithColor
+            label="Streetscape Assets"
+            value={budget.assets}
+            percentage={((budget.assets / budget.subtotal) * 100).toFixed(0)}
+            color="#8b5cf6"
+          />
         </div>
       </div>
-      
+
       {/* Priority Services */}
-      <div style={{
-        backgroundColor: '#fef3c7',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '2rem'
-      }}>
-        <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#92400e' }}>
+      <div
+        style={{
+          backgroundColor: "#fef3c7",
+          borderRadius: "8px",
+          padding: "1.5rem",
+          marginBottom: "2rem",
+        }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#92400e" }}>
           🎯 Priority Service Recommendations
         </h3>
         <ServicePriorities serviceDemands={serviceDemands} />
       </div>
-      
+
       {/* Quick Decision Points */}
-      <div style={{
-        backgroundColor: '#f0f9ff',
-        borderRadius: '8px',
-        padding: '1.5rem'
-      }}>
-        <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#075985' }}>
+      <div
+        style={{
+          backgroundColor: "#f0f9ff",
+          borderRadius: "8px",
+          padding: "1.5rem",
+        }}
+      >
+        <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#075985" }}>
           ✅ Key Decision Points
         </h3>
-        <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
-          <li>Budget represents <strong>${budget.costPerBusiness.toLocaleString()}</strong> annual cost per business</li>
-          <li>Coverage area of <strong>{data.areaAcres.toFixed(1)} acres</strong> at ${budget.costPerAcre.toLocaleString()}/acre</li>
-          <li>Staffing estimate: <strong>{budget.cleanersNeeded}</strong> cleaners, <strong>{budget.supervisorsNeeded}</strong> supervisors</li>
-          {budget.safetyFTE > 0 && <li>Safety coverage: <strong>{budget.safetyFTE.toFixed(1)}</strong> FTE ambassadors</li>}
+        <ul style={{ margin: 0, paddingLeft: "1.5rem" }}>
+          <li>
+            Budget represents{" "}
+            <strong>${budget.costPerBusiness.toLocaleString()}</strong> annual
+            cost per business
+          </li>
+          <li>
+            Coverage area of <strong>{data.areaAcres.toFixed(1)} acres</strong>{" "}
+            at ${budget.costPerAcre.toLocaleString()}/acre
+          </li>
+          <li>
+            Staffing estimate: <strong>{budget.cleanersNeeded}</strong>{" "}
+            cleaners, <strong>{budget.supervisorsNeeded}</strong> supervisors
+          </li>
+          {budget.safetyFTE > 0 && (
+            <li>
+              Safety coverage: <strong>{budget.safetyFTE.toFixed(1)}</strong>{" "}
+              FTE ambassadors
+            </li>
+          )}
         </ul>
       </div>
-      
+
       {/* Categories Distribution Pie Chart */}
-      <div style={{
-        backgroundColor: 'white',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginTop: '2rem',
-        border: '1px solid #e2e8f0'
-      }}>
-        <h3 style={{ marginTop: 0, marginBottom: '1.5rem', color: ginkgoTheme.colors.primary.navy, fontFamily: ginkgoTheme.typography.fontFamily.heading }}>
+      <div
+        style={{
+          backgroundColor: "white",
+          borderRadius: "8px",
+          padding: "1.5rem",
+          marginTop: "2rem",
+          border: "1px solid #e2e8f0",
+        }}
+      >
+        <h3
+          style={{
+            marginTop: 0,
+            marginBottom: "1.5rem",
+            color: ginkgoTheme.colors.primary.navy,
+            fontFamily: ginkgoTheme.typography.fontFamily.heading,
+          }}
+        >
           Business Category Distribution
         </h3>
         <CategoryPieChart data={data} />
@@ -673,101 +823,139 @@ function ServiceDetails({ data, budget, serviceDemands, params }: any) {
   return (
     <div>
       {/* Service Priority Classification Explanation */}
-      <div style={{
-        backgroundColor: '#f0f9ff',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '2rem',
-        border: '1px solid #bfdbfe'
-      }}>
-        <h3 style={{ margin: '0 0 1rem 0', color: '#075985', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div
+        style={{
+          backgroundColor: "#f0f9ff",
+          borderRadius: "8px",
+          padding: "1.5rem",
+          marginBottom: "2rem",
+          border: "1px solid #bfdbfe",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 1rem 0",
+            color: "#075985",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}
+        >
           📊 Service Priority Classification System
         </h3>
-        <p style={{ margin: '0 0 1rem 0', color: '#334155', fontSize: '0.9rem' }}>
-          Priority badges are determined by service intensity calculations based on business mix analysis:
+        <p
+          style={{ margin: "0 0 1rem 0", color: "#334155", fontSize: "0.9rem" }}
+        >
+          Priority badges are determined by service intensity calculations based
+          on business mix analysis:
         </p>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
-          <div style={{
-            padding: '0.75rem',
-            backgroundColor: 'white',
-            borderRadius: '6px',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
-          }}>
-            <div style={{
-              padding: '0.25rem 0.75rem',
-              backgroundColor: '#dc262620',
-              color: '#dc2626',
-              borderRadius: '20px',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              marginBottom: '0.5rem'
-            }}>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "1rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <div
+            style={{
+              padding: "0.75rem",
+              backgroundColor: "white",
+              borderRadius: "6px",
+              border: "1px solid #e2e8f0",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                padding: "0.25rem 0.75rem",
+                backgroundColor: "#dc262620",
+                color: "#dc2626",
+                borderRadius: "20px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "0.5rem",
+              }}
+            >
               High Priority
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              Intensity &gt; 1.15<br/>
+            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              Intensity &gt; 1.15
+              <br />
               (15% above baseline)
             </div>
           </div>
-          
-          <div style={{
-            padding: '0.75rem',
-            backgroundColor: 'white',
-            borderRadius: '6px',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
-          }}>
-            <div style={{
-              padding: '0.25rem 0.75rem',
-              backgroundColor: '#f59e0b20',
-              color: '#f59e0b',
-              borderRadius: '20px',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              marginBottom: '0.5rem'
-            }}>
+
+          <div
+            style={{
+              padding: "0.75rem",
+              backgroundColor: "white",
+              borderRadius: "6px",
+              border: "1px solid #e2e8f0",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                padding: "0.25rem 0.75rem",
+                backgroundColor: "#f59e0b20",
+                color: "#f59e0b",
+                borderRadius: "20px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "0.5rem",
+              }}
+            >
               Medium Priority
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              Intensity &gt; 1.05<br/>
+            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              Intensity &gt; 1.05
+              <br />
               (5-15% above baseline)
             </div>
           </div>
-          
-          <div style={{
-            padding: '0.75rem',
-            backgroundColor: 'white',
-            borderRadius: '6px',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
-          }}>
-            <div style={{
-              padding: '0.25rem 0.75rem',
-              backgroundColor: '#05966920',
-              color: '#059669',
-              borderRadius: '20px',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              marginBottom: '0.5rem'
-            }}>
+
+          <div
+            style={{
+              padding: "0.75rem",
+              backgroundColor: "white",
+              borderRadius: "6px",
+              border: "1px solid #e2e8f0",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                padding: "0.25rem 0.75rem",
+                backgroundColor: "#05966920",
+                color: "#059669",
+                borderRadius: "20px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                marginBottom: "0.5rem",
+              }}
+            >
               Standard
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              Intensity ≤ 1.05<br/>
+            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              Intensity ≤ 1.05
+              <br />
               (At or below baseline)
             </div>
           </div>
         </div>
-        
-        <div style={{
-          fontSize: '0.85rem',
-          color: '#64748b',
-          fontStyle: 'italic',
-          textAlign: 'center'
-        }}>
-          Based on BOMA, ISSA, and IDA industry standards for cleaning service intensity
+
+        <div
+          style={{
+            fontSize: "0.85rem",
+            color: "#64748b",
+            fontStyle: "italic",
+            textAlign: "center",
+          }}
+        >
+          Based on BOMA, ISSA, and IDA industry standards for cleaning service
+          intensity
         </div>
       </div>
 
@@ -782,10 +970,10 @@ function ServiceDetails({ data, budget, serviceDemands, params }: any) {
           `${budget.cleanersNeeded} cleaners needed per day`,
           `${budget.supervisorsNeeded} supervisors`,
           `${params.clean_days_per_week} days per week coverage`,
-          `${budget.frontageEstimate.toLocaleString()} ft estimated frontage`
+          `${budget.frontageEstimate.toLocaleString()} ft estimated frontage`,
         ]}
       />
-      
+
       {/* Safety Services */}
       <ServiceSection
         title="Safety & Hospitality"
@@ -794,13 +982,15 @@ function ServiceDetails({ data, budget, serviceDemands, params }: any) {
         priority={serviceDemands.safety.priority}
         needs={serviceDemands.safety.needs}
         details={[
-          params.safety_enabled ? `${budget.safetyFTE.toFixed(1)} FTE ambassadors` : 'Service not enabled',
+          params.safety_enabled
+            ? `${budget.safetyFTE.toFixed(1)} FTE ambassadors`
+            : "Service not enabled",
           `Night economy factor: ${budget.nightIntensity.toFixed(2)}`,
           `${params.safety_days_per_week} days per week coverage`,
-          `${params.safety_hours_per_day} hours per day`
+          `${params.safety_hours_per_day} hours per day`,
         ]}
       />
-      
+
       {/* Marketing Services */}
       <ServiceSection
         title="Marketing & Events"
@@ -812,24 +1002,34 @@ function ServiceDetails({ data, budget, serviceDemands, params }: any) {
           `Base budget: $${params.marketing_base_annual.toLocaleString()}`,
           `Per business: $${params.marketing_per_business}`,
           `${params.events_per_year} annual events`,
-          `$${params.cost_per_event.toLocaleString()} per event`
+          `$${params.cost_per_event.toLocaleString()} per event`,
         ]}
       />
-      
+
       {/* Streetscape Assets */}
-      <div style={{
-        backgroundColor: '#f8fafc',
-        borderRadius: '8px',
-        padding: '1.5rem',
-        marginBottom: '1.5rem'
-      }}>
-        <h3 style={{ marginTop: 0, color: '#1e293b' }}>
+      <div
+        style={{
+          backgroundColor: "#f8fafc",
+          borderRadius: "8px",
+          padding: "1.5rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <h3 style={{ marginTop: 0, color: "#1e293b" }}>
           🌳 Streetscape Assets (Annualized)
         </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "1rem",
+          }}
+        >
           <AssetCard
             name="Trash Cans"
-            count={Math.ceil(budget.frontageEstimate / params.feet_per_trash_can)}
+            count={Math.ceil(
+              budget.frontageEstimate / params.feet_per_trash_can
+            )}
             unitCost={params.trash_can_unit_cost}
             lifeYears={params.trash_can_life_years}
           />
@@ -855,35 +1055,48 @@ function ServiceDetails({ data, budget, serviceDemands, params }: any) {
 function ParameterSliders({ params, updateParam, budget }: any) {
   return (
     <div>
-      <div style={{
-        backgroundColor: '#fef3c7',
-        borderRadius: '8px',
-        padding: '1rem',
-        marginBottom: '1.5rem'
-      }}>
-        <p style={{ margin: 0, color: '#92400e' }}>
-          ⚠️ Adjust parameters below to see real-time budget impact. Default values are based on industry standards.
+      <div
+        style={{
+          backgroundColor: "#fef3c7",
+          borderRadius: "8px",
+          padding: "1rem",
+          marginBottom: "1.5rem",
+        }}
+      >
+        <p style={{ margin: 0, color: "#92400e" }}>
+          ⚠️ Adjust parameters below to see real-time budget impact. Default
+          values are based on industry standards.
         </p>
       </div>
-      
+
       {/* Live Budget Display */}
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        backgroundColor: 'white',
-        padding: '1rem',
-        borderBottom: '2px solid #e2e8f0',
-        marginBottom: '1.5rem',
-        zIndex: 10
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          backgroundColor: "white",
+          padding: "1rem",
+          borderBottom: "2px solid #e2e8f0",
+          marginBottom: "1.5rem",
+          zIndex: 10,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
           <h3 style={{ margin: 0 }}>Total Annual Budget:</h3>
-          <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0ea5e9' }}>
+          <div
+            style={{ fontSize: "2rem", fontWeight: "bold", color: "#0ea5e9" }}
+          >
             ${budget.total.toLocaleString()}
           </div>
         </div>
       </div>
-      
+
       {/* Cleaning Parameters */}
       <ParameterSection title="Cleaning & Maintenance">
         <SliderInput
@@ -893,7 +1106,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={50}
           step={1}
           unit="$/hr"
-          onChange={(v) => updateParam('clean_loaded_rate', v)}
+          onChange={(v) => updateParam("clean_loaded_rate", v)}
         />
         <SliderInput
           label="Days per Week"
@@ -901,7 +1114,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           min={3}
           max={7}
           step={1}
-          onChange={(v) => updateParam('clean_days_per_week', v)}
+          onChange={(v) => updateParam("clean_days_per_week", v)}
         />
         <SliderInput
           label="Productivity (ft/hour)"
@@ -910,7 +1123,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={1500}
           step={50}
           unit="ft"
-          onChange={(v) => updateParam('frontage_ft_per_cleaner_hour', v)}
+          onChange={(v) => updateParam("frontage_ft_per_cleaner_hour", v)}
         />
         <SliderInput
           label="Supervisor Ratio"
@@ -919,18 +1132,20 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={12}
           step={1}
           unit=":1"
-          onChange={(v) => updateParam('supervisor_ratio', v)}
+          onChange={(v) => updateParam("supervisor_ratio", v)}
         />
       </ParameterSection>
-      
+
       {/* Safety Parameters */}
       <ParameterSection title="Safety & Hospitality">
-        <div style={{ marginBottom: '1rem' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ marginBottom: "1rem" }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
             <input
               type="checkbox"
               checked={params.safety_enabled}
-              onChange={(e) => updateParam('safety_enabled', e.target.checked)}
+              onChange={(e) => updateParam("safety_enabled", e.target.checked)}
             />
             <span>Enable Safety Services</span>
           </label>
@@ -944,7 +1159,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               max={60}
               step={1}
               unit="$/hr"
-              onChange={(v) => updateParam('safety_loaded_rate', v)}
+              onChange={(v) => updateParam("safety_loaded_rate", v)}
             />
             <SliderInput
               label="Hours per Day"
@@ -953,7 +1168,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               max={24}
               step={1}
               unit="hrs"
-              onChange={(v) => updateParam('safety_hours_per_day', v)}
+              onChange={(v) => updateParam("safety_hours_per_day", v)}
             />
             <SliderInput
               label="Days per Week"
@@ -961,12 +1176,12 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               min={3}
               max={7}
               step={1}
-              onChange={(v) => updateParam('safety_days_per_week', v)}
+              onChange={(v) => updateParam("safety_days_per_week", v)}
             />
           </>
         )}
       </ParameterSection>
-      
+
       {/* Marketing Parameters */}
       <ParameterSection title="Marketing & Events">
         <SliderInput
@@ -976,7 +1191,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={100000}
           step={5000}
           unit="$"
-          onChange={(v) => updateParam('marketing_base_annual', v)}
+          onChange={(v) => updateParam("marketing_base_annual", v)}
         />
         <SliderInput
           label="Per Business Marketing"
@@ -985,7 +1200,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={200}
           step={10}
           unit="$"
-          onChange={(v) => updateParam('marketing_per_business', v)}
+          onChange={(v) => updateParam("marketing_per_business", v)}
         />
         <SliderInput
           label="Events per Year"
@@ -993,7 +1208,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           min={0}
           max={24}
           step={1}
-          onChange={(v) => updateParam('events_per_year', v)}
+          onChange={(v) => updateParam("events_per_year", v)}
         />
         <SliderInput
           label="Cost per Event"
@@ -1002,10 +1217,10 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={20000}
           step={1000}
           unit="$"
-          onChange={(v) => updateParam('cost_per_event', v)}
+          onChange={(v) => updateParam("cost_per_event", v)}
         />
       </ParameterSection>
-      
+
       {/* Admin Overhead */}
       <ParameterSection title="Administration">
         <SliderInput
@@ -1015,7 +1230,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           max={25}
           step={1}
           unit="%"
-          onChange={(v) => updateParam('admin_overhead_pct', v / 100)}
+          onChange={(v) => updateParam("admin_overhead_pct", v / 100)}
         />
       </ParameterSection>
     </div>
@@ -1025,22 +1240,28 @@ function ParameterSliders({ params, updateParam, budget }: any) {
 // Helper Components
 function MetricCard({ title, value, subtitle, color }: any) {
   return (
-    <div style={{
-      backgroundColor: 'white',
-      border: '1px solid #e2e8f0',
-      borderRadius: '8px',
-      padding: '1rem',
-      borderTop: `3px solid ${color}`
-    }}>
-      <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '0.25rem' }}>
+    <div
+      style={{
+        backgroundColor: "white",
+        border: "1px solid #e2e8f0",
+        borderRadius: "8px",
+        padding: "1rem",
+        borderTop: `3px solid ${color}`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: "0.9rem",
+          color: "#64748b",
+          marginBottom: "0.25rem",
+        }}
+      >
         {title}
       </div>
-      <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color }}>
+      <div style={{ fontSize: "1.5rem", fontWeight: "bold", color }}>
         {value}
       </div>
-      <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-        {subtitle}
-      </div>
+      <div style={{ fontSize: "0.85rem", color: "#94a3b8" }}>{subtitle}</div>
     </div>
   );
 }
@@ -1048,35 +1269,38 @@ function MetricCard({ title, value, subtitle, color }: any) {
 function BudgetBar({ budget }: any) {
   const total = budget.subtotal;
   const segments = [
-    { label: 'Cleaning', value: budget.cleaning, color: '#0ea5e9' },
-    { label: 'Safety', value: budget.safety, color: '#059669' },
-    { label: 'Marketing', value: budget.marketing, color: '#f59e0b' },
-    { label: 'Assets', value: budget.assets, color: '#8b5cf6' }
+    { label: "Cleaning", value: budget.cleaning, color: "#0ea5e9" },
+    { label: "Safety", value: budget.safety, color: "#059669" },
+    { label: "Marketing", value: budget.marketing, color: "#f59e0b" },
+    { label: "Assets", value: budget.assets, color: "#8b5cf6" },
   ];
-  
+
   return (
-    <div style={{
-      display: 'flex',
-      height: '40px',
-      borderRadius: '4px',
-      overflow: 'hidden',
-      border: '1px solid #e2e8f0'
-    }}>
+    <div
+      style={{
+        display: "flex",
+        height: "40px",
+        borderRadius: "4px",
+        overflow: "hidden",
+        border: "1px solid #e2e8f0",
+      }}
+    >
       {segments.map((seg, i) => (
         <div
           key={i}
           style={{
-            width: `${(seg.value / total * 100)}%`,
+            width: `${(seg.value / total) * 100}%`,
             backgroundColor: seg.color,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontSize: '0.8rem',
-            fontWeight: 600
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "white",
+            fontSize: "0.8rem",
+            fontWeight: 600,
           }}
         >
-          {seg.value / total > 0.1 && `${(seg.value / total * 100).toFixed(0)}%`}
+          {seg.value / total > 0.1 &&
+            `${((seg.value / total) * 100).toFixed(0)}%`}
         </div>
       ))}
     </div>
@@ -1085,8 +1309,14 @@ function BudgetBar({ budget }: any) {
 
 function BudgetLineItem({ label, value, percentage }: any) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0' }}>
-      <span style={{ color: '#64748b' }}>{label}</span>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "0.5rem 0",
+      }}
+    >
+      <span style={{ color: "#64748b" }}>{label}</span>
       <span style={{ fontWeight: 600 }}>
         ${value.toLocaleString()} ({percentage}%)
       </span>
@@ -1096,38 +1326,46 @@ function BudgetLineItem({ label, value, percentage }: any) {
 
 function BudgetLineItemWithColor({ label, value, percentage, color }: any) {
   return (
-    <div style={{ 
-      display: 'flex', 
-      alignItems: 'center', 
-      padding: '0.75rem 0',
-      borderBottom: '1px solid #e2e8f0'
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "0.75rem 0",
+        borderBottom: "1px solid #e2e8f0",
+      }}
+    >
       {/* Color indicator */}
-      <div style={{
-        width: '16px',
-        height: '16px',
-        backgroundColor: color,
-        borderRadius: '3px',
-        marginRight: '12px',
-        flexShrink: 0
-      }} />
-      
+      <div
+        style={{
+          width: "16px",
+          height: "16px",
+          backgroundColor: color,
+          borderRadius: "3px",
+          marginRight: "12px",
+          flexShrink: 0,
+        }}
+      />
+
       {/* Service name */}
-      <span style={{ 
-        color: '#374151',
-        fontFamily: ginkgoTheme.typography.fontFamily.body,
-        fontWeight: 500,
-        flexGrow: 1
-      }}>
+      <span
+        style={{
+          color: "#374151",
+          fontFamily: ginkgoTheme.typography.fontFamily.body,
+          fontWeight: 500,
+          flexGrow: 1,
+        }}
+      >
         {label}
       </span>
-      
+
       {/* Amount and percentage */}
-      <span style={{ 
-        fontWeight: 600,
-        color: '#1e293b',
-        fontFamily: ginkgoTheme.typography.fontFamily.body
-      }}>
+      <span
+        style={{
+          fontWeight: 600,
+          color: "#1e293b",
+          fontFamily: ginkgoTheme.typography.fontFamily.body,
+        }}
+      >
         ${value.toLocaleString()} ({percentage}%)
       </span>
     </div>
@@ -1136,21 +1374,33 @@ function BudgetLineItemWithColor({ label, value, percentage, color }: any) {
 
 function ServicePriorities({ serviceDemands }: any) {
   const allNeeds = [
-    ...serviceDemands.cleaning.needs.map((n: string) => ({ service: 'Cleaning', need: n, priority: serviceDemands.cleaning.priority })),
-    ...serviceDemands.safety.needs.map((n: string) => ({ service: 'Safety', need: n, priority: serviceDemands.safety.priority })),
-    ...serviceDemands.marketing.needs.map((n: string) => ({ service: 'Marketing', need: n, priority: serviceDemands.marketing.priority }))
+    ...serviceDemands.cleaning.needs.map((n: string) => ({
+      service: "Cleaning",
+      need: n,
+      priority: serviceDemands.cleaning.priority,
+    })),
+    ...serviceDemands.safety.needs.map((n: string) => ({
+      service: "Safety",
+      need: n,
+      priority: serviceDemands.safety.priority,
+    })),
+    ...serviceDemands.marketing.needs.map((n: string) => ({
+      service: "Marketing",
+      need: n,
+      priority: serviceDemands.marketing.priority,
+    })),
   ];
-  
+
   // Sort by priority
   const sortedNeeds = allNeeds.sort((a, b) => {
-    const priorityOrder = { 'High': 0, 'Medium': 1, 'Standard': 2 };
+    const priorityOrder = { High: 0, Medium: 1, Standard: 2 };
     return priorityOrder[a.priority] - priorityOrder[b.priority];
   });
-  
+
   return (
-    <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+    <ul style={{ margin: 0, paddingLeft: "1.5rem" }}>
       {sortedNeeds.slice(0, 5).map((item, i) => (
-        <li key={i} style={{ marginBottom: '0.5rem' }}>
+        <li key={i} style={{ marginBottom: "0.5rem" }}>
           <strong>{item.service}:</strong> {item.need}
         </li>
       ))}
@@ -1160,54 +1410,80 @@ function ServicePriorities({ serviceDemands }: any) {
 
 function ServiceSection({ title, icon, cost, priority, needs, details }: any) {
   const priorityColors = {
-    'High': '#dc2626',
-    'Medium': '#f59e0b',
-    'Standard': '#059669'
+    High: "#dc2626",
+    Medium: "#f59e0b",
+    Standard: "#059669",
   };
-  
+
   return (
-    <div style={{
-      backgroundColor: '#f8fafc',
-      borderRadius: '8px',
-      padding: '1.5rem',
-      marginBottom: '1.5rem'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>{icon}</span>
+    <div
+      style={{
+        backgroundColor: "#f8fafc",
+        borderRadius: "8px",
+        padding: "1.5rem",
+        marginBottom: "1.5rem",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "1rem",
+        }}
+      >
+        <h3
+          style={{
+            margin: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}
+        >
+          <span style={{ fontSize: "1.5rem" }}>{icon}</span>
           {title}
         </h3>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <span style={{
-            padding: '0.25rem 0.75rem',
-            backgroundColor: priorityColors[priority] + '20',
-            color: priorityColors[priority],
-            borderRadius: '20px',
-            fontSize: '0.85rem',
-            fontWeight: 600
-          }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <span
+            style={{
+              padding: "0.25rem 0.75rem",
+              backgroundColor: priorityColors[priority] + "20",
+              color: priorityColors[priority],
+              borderRadius: "20px",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+            }}
+          >
             {priority} Priority
           </span>
-          <span style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>
+          <span style={{ fontSize: "1.25rem", fontWeight: "bold" }}>
             ${cost.toLocaleString()}
           </span>
         </div>
       </div>
-      
+
       {needs.length > 0 && (
-        <div style={{ marginBottom: '1rem' }}>
+        <div style={{ marginBottom: "1rem" }}>
           <strong>Service Needs:</strong>
-          <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+          <ul style={{ margin: "0.5rem 0 0 1.5rem", padding: 0 }}>
             {needs.map((need: string, i: number) => (
-              <li key={i} style={{ marginBottom: '0.25rem' }}>{need}</li>
+              <li key={i} style={{ marginBottom: "0.25rem" }}>
+                {need}
+              </li>
             ))}
           </ul>
         </div>
       )}
-      
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: "0.5rem",
+        }}
+      >
         {details.map((detail: string, i: number) => (
-          <div key={i} style={{ fontSize: '0.9rem', color: '#64748b' }}>
+          <div key={i} style={{ fontSize: "0.9rem", color: "#64748b" }}>
             • {detail}
           </div>
         ))}
@@ -1218,20 +1494,22 @@ function ServiceSection({ title, icon, cost, priority, needs, details }: any) {
 
 function AssetCard({ name, count, unitCost, lifeYears }: any) {
   const annualCost = (count * unitCost) / lifeYears;
-  
+
   return (
-    <div style={{
-      padding: '1rem',
-      backgroundColor: 'white',
-      border: '1px solid #e2e8f0',
-      borderRadius: '4px'
-    }}>
-      <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{name}</div>
-      <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+    <div
+      style={{
+        padding: "1rem",
+        backgroundColor: "white",
+        border: "1px solid #e2e8f0",
+        borderRadius: "4px",
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: "0.5rem" }}>{name}</div>
+      <div style={{ fontSize: "0.9rem", color: "#64748b" }}>
         <div>Quantity: {count}</div>
         <div>Unit cost: ${unitCost}</div>
         <div>Life: {lifeYears} years</div>
-        <div style={{ marginTop: '0.5rem', fontWeight: 600, color: '#1e293b' }}>
+        <div style={{ marginTop: "0.5rem", fontWeight: 600, color: "#1e293b" }}>
           Annual: ${Math.round(annualCost).toLocaleString()}
         </div>
       </div>
@@ -1241,13 +1519,15 @@ function AssetCard({ name, count, unitCost, lifeYears }: any) {
 
 function ParameterSection({ title, children }: any) {
   return (
-    <div style={{
-      marginBottom: '2rem',
-      padding: '1.5rem',
-      backgroundColor: '#f8fafc',
-      borderRadius: '8px'
-    }}>
-      <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#1e293b' }}>
+    <div
+      style={{
+        marginBottom: "2rem",
+        padding: "1.5rem",
+        backgroundColor: "#f8fafc",
+        borderRadius: "8px",
+      }}
+    >
+      <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#1e293b" }}>
         {title}
       </h3>
       {children}
@@ -1255,17 +1535,35 @@ function ParameterSection({ title, children }: any) {
   );
 }
 
-function SliderInput({ label, value, min, max, step, unit = '', onChange }: any) {
+function SliderInput({
+  label,
+  value,
+  min,
+  max,
+  step,
+  unit = "",
+  onChange,
+}: any) {
   return (
-    <div style={{ marginBottom: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-        <label style={{ fontSize: '0.9rem', color: '#64748b' }}>{label}</label>
+    <div style={{ marginBottom: "1rem" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "0.5rem",
+        }}
+      >
+        <label style={{ fontSize: "0.9rem", color: "#64748b" }}>{label}</label>
         <span style={{ fontWeight: 600 }}>
-          {unit && unit !== '$' && unit !== '%' && !unit.startsWith(':') ? value.toLocaleString() + ' ' + unit :
-           unit === '$' ? '$' + value.toLocaleString() :
-           unit === '%' ? value.toFixed(0) + '%' :
-           unit.startsWith(':') ? value + unit :
-           value.toLocaleString()}
+          {unit && unit !== "$" && unit !== "%" && !unit.startsWith(":")
+            ? value.toLocaleString() + " " + unit
+            : unit === "$"
+            ? "$" + value.toLocaleString()
+            : unit === "%"
+            ? value.toFixed(0) + "%"
+            : unit.startsWith(":")
+            ? value + unit
+            : value.toLocaleString()}
         </span>
       </div>
       <input
@@ -1276,12 +1574,14 @@ function SliderInput({ label, value, min, max, step, unit = '', onChange }: any)
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         style={{
-          width: '100%',
-          height: '6px',
-          borderRadius: '3px',
-          background: `linear-gradient(to right, #0ea5e9 0%, #0ea5e9 ${((value - min) / (max - min) * 100)}%, #e2e8f0 ${((value - min) / (max - min) * 100)}%, #e2e8f0 100%)`,
-          outline: 'none',
-          WebkitAppearance: 'none'
+          width: "100%",
+          height: "6px",
+          borderRadius: "3px",
+          background: `linear-gradient(to right, #0ea5e9 0%, #0ea5e9 ${
+            ((value - min) / (max - min)) * 100
+          }%, #e2e8f0 ${((value - min) / (max - min)) * 100}%, #e2e8f0 100%)`,
+          outline: "none",
+          WebkitAppearance: "none",
         }}
       />
     </div>
@@ -1290,27 +1590,16 @@ function SliderInput({ label, value, min, max, step, unit = '', onChange }: any)
 
 // Category Pie Chart Component
 function CategoryPieChart({ data }: { data: any }) {
-  // ColorBrewer2 Set3 12-color qualitative palette + extensions for more variety
-  const COLORBREWER_PALETTE = [
-    '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462',
-    '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
-    // Extended with complementary colors for more categories
-    '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-    '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
-    '#f781bf', '#999999', '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3',
-    '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3', '#8dd3c7', '#ffffb3'
-  ];
-
   // Process the places data to count categories
   const categoryCounts: Record<string, number> = {};
-  
+
   if (data.places && Array.isArray(data.places)) {
     data.places.forEach((place: any) => {
       if (place.properties && place.properties.category) {
         const category = place.properties.category.toLowerCase();
         categoryCounts[category] = (categoryCounts[category] || 0) + 1;
       } else {
-        categoryCounts['other'] = (categoryCounts['other'] || 0) + 1;
+        categoryCounts["other"] = (categoryCounts["other"] || 0) + 1;
       }
     });
   }
@@ -1323,34 +1612,35 @@ function CategoryPieChart({ data }: { data: any }) {
   // Sort categories by count and show top 10, group rest as "Other"
   const sortedCategories = Object.entries(categoryCounts)
     .filter(([_, count]) => count > 0)
-    .sort(([,a], [,b]) => b - a); // Sort by count descending
+    .sort(([, a], [, b]) => b - a); // Sort by count descending
 
   const TOP_CATEGORIES_COUNT = 10;
   const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
   const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
 
-  // Add top categories
-  topCategories.forEach(([category, count], index) => {
+  // Add top categories using unified color system
+  topCategories.forEach(([category, count]) => {
     // Format category name for display
-    const displayName = category.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
-    
+    const displayName = category
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
     chartLabels.push(`${displayName} (${count})`);
     chartData.push(count);
-    chartColors.push(COLORBREWER_PALETTE[index % COLORBREWER_PALETTE.length]);
+    chartColors.push(getCategoryColor(category));
   });
 
   // Group remaining categories as "Other" if there are any
   if (otherCategories.length > 0) {
-    const otherCount = otherCategories.reduce((sum, [_, count]) => sum + count, 0);
-    const otherCategoryNames = otherCategories.map(([category]) => 
-      category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+    const otherCount = otherCategories.reduce(
+      (sum, [_, count]) => sum + count,
+      0
     );
-    
+
     chartLabels.push(`Other (${otherCount})`);
     chartData.push(otherCount);
-    chartColors.push('#999999'); // Gray for "Other"
+    chartColors.push(CATEGORY_COLORS.other); // Use unified "other" color
   }
 
   const chartConfig = {
@@ -1359,121 +1649,139 @@ function CategoryPieChart({ data }: { data: any }) {
       {
         data: chartData,
         backgroundColor: chartColors,
-        borderColor: chartColors.map(color => color),
+        borderColor: chartColors.map((color) => color),
         borderWidth: 2,
         hoverBorderWidth: 3,
-        hoverBorderColor: '#ffffff'
-      }
-    ]
+        hoverBorderColor: "#ffffff",
+      },
+    ],
   };
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    cutout: '70%', // Makes it a thin donut chart
+    cutout: "70%", // Makes it a thin donut chart
     plugins: {
       legend: {
-        position: 'right' as const,
+        position: "right" as const,
         labels: {
           padding: 15,
           font: {
             family: ginkgoTheme.typography.fontFamily.body,
-            size: 11
+            size: 11,
           },
           color: ginkgoTheme.colors.text.primary,
           usePointStyle: true,
-          pointStyle: 'circle',
+          pointStyle: "circle",
           boxWidth: 12,
-          boxHeight: 12
-        }
+          boxHeight: 12,
+        },
       },
       tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        titleColor: 'white',
-        bodyColor: 'white',
+        backgroundColor: "rgba(0, 0, 0, 0.9)",
+        titleColor: "white",
+        bodyColor: "white",
         borderColor: ginkgoTheme.colors.primary.green,
         borderWidth: 1,
         cornerRadius: 8,
         displayColors: true,
         titleFont: {
           size: 13,
-          weight: 'bold'
+          weight: "bold",
         },
         bodyFont: {
-          size: 12
+          size: 12,
         },
         padding: 12,
         callbacks: {
-          label: function(context: any) {
-            const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
+          label: function (context: any) {
+            const total = context.dataset.data.reduce(
+              (a: number, b: number) => a + b,
+              0
+            );
             const percentage = ((context.raw / total) * 100).toFixed(1);
-            
+
             // For "Other" category, show additional detail in tooltip
-            if (context.label.startsWith('Other')) {
-              const otherCategoryNames = otherCategories.map(([category]) => 
-                category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+            if (context.label.startsWith("Other")) {
+              const otherCategoryNames = otherCategories.map(([category]) =>
+                category
+                  .split("_")
+                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                  .join(" ")
               );
               return [
                 `${context.label}: ${percentage}%`,
-                `Includes: ${otherCategoryNames.slice(0, 5).join(', ')}${otherCategoryNames.length > 5 ? '...' : ''}`
+                `Includes: ${otherCategoryNames.slice(0, 5).join(", ")}${
+                  otherCategoryNames.length > 5 ? "..." : ""
+                }`,
               ];
             }
-            
+
             return `${context.label}: ${percentage}%`;
-          }
-        }
-      }
-    }
+          },
+        },
+      },
+    },
   };
 
   if (chartLabels.length === 0) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '200px',
-        color: ginkgoTheme.colors.text.secondary,
-        fontFamily: ginkgoTheme.typography.fontFamily.body
-      }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "200px",
+          color: ginkgoTheme.colors.text.secondary,
+          fontFamily: ginkgoTheme.typography.fontFamily.body,
+        }}
+      >
         No category data available
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '400px',
-      position: 'relative'
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "400px",
+        position: "relative",
+      }}
+    >
       <Pie data={chartConfig} options={chartOptions} />
-      
+
       {/* Center text for donut chart */}
-      <div style={{
-        position: 'absolute',
-        top: '50%',
-        left: '35%', // Adjusted for legend on right
-        transform: 'translate(-50%, -50%)',
-        textAlign: 'center',
-        pointerEvents: 'none'
-      }}>
-        <div style={{
-          fontSize: '28px',
-          fontWeight: 'bold',
-          color: ginkgoTheme.colors.primary.navy,
-          fontFamily: ginkgoTheme.typography.fontFamily.heading
-        }}>
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: "35%", // Adjusted for legend on right
+          transform: "translate(-50%, -50%)",
+          textAlign: "center",
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "28px",
+            fontWeight: "bold",
+            color: ginkgoTheme.colors.primary.navy,
+            fontFamily: ginkgoTheme.typography.fontFamily.heading,
+          }}
+        >
           {data.totalPlaces}
         </div>
-        <div style={{
-          fontSize: '12px',
-          color: ginkgoTheme.colors.text.secondary,
-          fontFamily: ginkgoTheme.typography.fontFamily.body,
-          marginTop: '4px'
-        }}>
+        <div
+          style={{
+            fontSize: "12px",
+            color: ginkgoTheme.colors.text.secondary,
+            fontFamily: ginkgoTheme.typography.fontFamily.body,
+            marginTop: "4px",
+          }}
+        >
           Total Businesses
         </div>
       </div>
