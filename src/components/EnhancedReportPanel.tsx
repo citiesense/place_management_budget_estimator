@@ -367,6 +367,7 @@ export function EnhancedReportPanel({
             budget={budget}
             placeTypology={placeTypology}
             serviceDemands={serviceDemands}
+            params={params}
           />
         )}
 
@@ -645,6 +646,7 @@ function ExecutiveSummary({
   budget,
   placeTypology,
   serviceDemands,
+  params,
 }: any) {
   const getTypologyColor = (typology: string) => {
     const colors: Record<string, string> = {
@@ -714,32 +716,56 @@ function ExecutiveSummary({
         <h3 style={{ marginTop: 0, marginBottom: "1rem", color: "#1e293b" }}>
           Budget Allocation
         </h3>
-        <BudgetBar budget={budget} />
+        <BudgetBar budget={budget} params={params} />
         <div style={{ marginTop: "1.5rem" }}>
-          <BudgetLineItemWithColor
-            label="Cleaning & Maintenance"
-            value={budget.cleaning}
-            percentage={((budget.cleaning / budget.subtotal) * 100).toFixed(0)}
-            color="#0ea5e9"
-          />
-          <BudgetLineItemWithColor
-            label="Safety & Hospitality"
-            value={budget.safety}
-            percentage={((budget.safety / budget.subtotal) * 100).toFixed(0)}
-            color="#059669"
-          />
-          <BudgetLineItemWithColor
-            label="Marketing & Events"
-            value={budget.marketing}
-            percentage={((budget.marketing / budget.subtotal) * 100).toFixed(0)}
-            color="#f59e0b"
-          />
-          <BudgetLineItemWithColor
-            label="Streetscape Assets"
-            value={budget.assets}
-            percentage={((budget.assets / budget.subtotal) * 100).toFixed(0)}
-            color="#8b5cf6"
-          />
+          {params.cleaning_enabled && (
+            <BudgetLineItemWithColor
+              label="Cleaning & Maintenance"
+              value={budget.cleaning}
+              percentage={
+                budget.subtotal > 0
+                  ? ((budget.cleaning / budget.subtotal) * 100).toFixed(0)
+                  : "0"
+              }
+              color="#0ea5e9"
+            />
+          )}
+          {params.safety_enabled && (
+            <BudgetLineItemWithColor
+              label="Safety & Hospitality"
+              value={budget.safety}
+              percentage={
+                budget.subtotal > 0
+                  ? ((budget.safety / budget.subtotal) * 100).toFixed(0)
+                  : "0"
+              }
+              color="#059669"
+            />
+          )}
+          {params.marketing_enabled && (
+            <BudgetLineItemWithColor
+              label="Marketing & Events"
+              value={budget.marketing}
+              percentage={
+                budget.subtotal > 0
+                  ? ((budget.marketing / budget.subtotal) * 100).toFixed(0)
+                  : "0"
+              }
+              color="#f59e0b"
+            />
+          )}
+          {params.assets_enabled && (
+            <BudgetLineItemWithColor
+              label="Streetscape Assets"
+              value={budget.assets}
+              percentage={
+                budget.subtotal > 0
+                  ? ((budget.assets / budget.subtotal) * 100).toFixed(0)
+                  : "0"
+              }
+              color="#8b5cf6"
+            />
+          )}
         </div>
       </div>
 
@@ -1099,41 +1125,59 @@ function ParameterSliders({ params, updateParam, budget }: any) {
 
       {/* Cleaning Parameters */}
       <ParameterSection title="Cleaning & Maintenance">
-        <SliderInput
-          label="Cleaner Hourly Rate (loaded)"
-          value={params.clean_loaded_rate}
-          min={20}
-          max={50}
-          step={1}
-          unit="$/hr"
-          onChange={(v) => updateParam("clean_loaded_rate", v)}
-        />
-        <SliderInput
-          label="Days per Week"
-          value={params.clean_days_per_week}
-          min={3}
-          max={7}
-          step={1}
-          onChange={(v) => updateParam("clean_days_per_week", v)}
-        />
-        <SliderInput
-          label="Productivity (ft/hour)"
-          value={params.frontage_ft_per_cleaner_hour}
-          min={500}
-          max={1500}
-          step={50}
-          unit="ft"
-          onChange={(v) => updateParam("frontage_ft_per_cleaner_hour", v)}
-        />
-        <SliderInput
-          label="Supervisor Ratio"
-          value={params.supervisor_ratio}
-          min={4}
-          max={12}
-          step={1}
-          unit=":1"
-          onChange={(v) => updateParam("supervisor_ratio", v)}
-        />
+        <div style={{ marginBottom: "1rem" }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <input
+              type="checkbox"
+              checked={params.cleaning_enabled}
+              onChange={(e) =>
+                updateParam("cleaning_enabled", e.target.checked)
+              }
+            />
+            <span>Enable Cleaning Services</span>
+          </label>
+        </div>
+        {params.cleaning_enabled && (
+          <>
+            <SliderInput
+              label="Cleaner Hourly Rate (loaded)"
+              value={params.clean_loaded_rate}
+              min={20}
+              max={50}
+              step={1}
+              unit="$/hr"
+              onChange={(v) => updateParam("clean_loaded_rate", v)}
+            />
+            <SliderInput
+              label="Days per Week"
+              value={params.clean_days_per_week}
+              min={3}
+              max={7}
+              step={1}
+              onChange={(v) => updateParam("clean_days_per_week", v)}
+            />
+            <SliderInput
+              label="Productivity (ft/hour)"
+              value={params.frontage_ft_per_cleaner_hour}
+              min={500}
+              max={1500}
+              step={50}
+              unit="ft"
+              onChange={(v) => updateParam("frontage_ft_per_cleaner_hour", v)}
+            />
+            <SliderInput
+              label="Supervisor Ratio"
+              value={params.supervisor_ratio}
+              min={4}
+              max={12}
+              step={1}
+              unit=":1"
+              onChange={(v) => updateParam("supervisor_ratio", v)}
+            />
+          </>
+        )}
       </ParameterSection>
 
       {/* Safety Parameters */}
@@ -1184,41 +1228,133 @@ function ParameterSliders({ params, updateParam, budget }: any) {
 
       {/* Marketing Parameters */}
       <ParameterSection title="Marketing & Events">
-        <SliderInput
-          label="Base Annual Marketing"
-          value={params.marketing_base_annual}
-          min={10000}
-          max={100000}
-          step={5000}
-          unit="$"
-          onChange={(v) => updateParam("marketing_base_annual", v)}
-        />
-        <SliderInput
-          label="Per Business Marketing"
-          value={params.marketing_per_business}
-          min={20}
-          max={200}
-          step={10}
-          unit="$"
-          onChange={(v) => updateParam("marketing_per_business", v)}
-        />
-        <SliderInput
-          label="Events per Year"
-          value={params.events_per_year}
-          min={0}
-          max={24}
-          step={1}
-          onChange={(v) => updateParam("events_per_year", v)}
-        />
-        <SliderInput
-          label="Cost per Event"
-          value={params.cost_per_event}
-          min={1000}
-          max={20000}
-          step={1000}
-          unit="$"
-          onChange={(v) => updateParam("cost_per_event", v)}
-        />
+        <div style={{ marginBottom: "1rem" }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <input
+              type="checkbox"
+              checked={params.marketing_enabled}
+              onChange={(e) =>
+                updateParam("marketing_enabled", e.target.checked)
+              }
+            />
+            <span>Enable Marketing & Events</span>
+          </label>
+        </div>
+        {params.marketing_enabled && (
+          <>
+            <SliderInput
+              label="Base Annual Marketing"
+              value={params.marketing_base_annual}
+              min={10000}
+              max={100000}
+              step={5000}
+              unit="$"
+              onChange={(v) => updateParam("marketing_base_annual", v)}
+            />
+            <SliderInput
+              label="Per Business Marketing"
+              value={params.marketing_per_business}
+              min={20}
+              max={200}
+              step={10}
+              unit="$"
+              onChange={(v) => updateParam("marketing_per_business", v)}
+            />
+            <SliderInput
+              label="Events per Year"
+              value={params.events_per_year}
+              min={0}
+              max={24}
+              step={1}
+              onChange={(v) => updateParam("events_per_year", v)}
+            />
+            <SliderInput
+              label="Cost per Event"
+              value={params.cost_per_event}
+              min={1000}
+              max={20000}
+              step={1000}
+              unit="$"
+              onChange={(v) => updateParam("cost_per_event", v)}
+            />
+          </>
+        )}
+      </ParameterSection>
+
+      {/* Streetscape Assets Parameters */}
+      <ParameterSection title="Streetscape Assets">
+        <div style={{ marginBottom: "1rem" }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
+            <input
+              type="checkbox"
+              checked={params.assets_enabled}
+              onChange={(e) => updateParam("assets_enabled", e.target.checked)}
+            />
+            <span>Enable Streetscape Assets</span>
+          </label>
+        </div>
+        {params.assets_enabled && (
+          <>
+            <SliderInput
+              label="Feet per Trash Can"
+              value={params.feet_per_trash_can}
+              min={200}
+              max={800}
+              step={50}
+              unit="ft"
+              onChange={(v) => updateParam("feet_per_trash_can", v)}
+            />
+            <SliderInput
+              label="Trash Can Unit Cost"
+              value={params.trash_can_unit_cost}
+              min={500}
+              max={2000}
+              step={50}
+              unit="$"
+              onChange={(v) => updateParam("trash_can_unit_cost", v)}
+            />
+            <SliderInput
+              label="Feet per Planter"
+              value={params.feet_per_planter}
+              min={300}
+              max={1200}
+              step={50}
+              unit="ft"
+              onChange={(v) => updateParam("feet_per_planter", v)}
+            />
+            <SliderInput
+              label="Planter Unit Cost"
+              value={params.planter_unit_cost}
+              min={100}
+              max={800}
+              step={25}
+              unit="$"
+              onChange={(v) => updateParam("planter_unit_cost", v)}
+            />
+            <SliderInput
+              label="Feet per Banner"
+              value={params.feet_per_banner}
+              min={400}
+              max={1500}
+              step={50}
+              unit="ft"
+              onChange={(v) => updateParam("feet_per_banner", v)}
+            />
+            <SliderInput
+              label="Banner Unit Cost"
+              value={params.banner_unit_cost}
+              min={50}
+              max={500}
+              step={10}
+              unit="$"
+              onChange={(v) => updateParam("banner_unit_cost", v)}
+            />
+          </>
+        )}
       </ParameterSection>
 
       {/* Admin Overhead */}
@@ -1266,14 +1402,30 @@ function MetricCard({ title, value, subtitle, color }: any) {
   );
 }
 
-function BudgetBar({ budget }: any) {
+function BudgetBar({ budget, params }: any) {
   const total = budget.subtotal;
   const segments = [
-    { label: "Cleaning", value: budget.cleaning, color: "#0ea5e9" },
-    { label: "Safety", value: budget.safety, color: "#059669" },
-    { label: "Marketing", value: budget.marketing, color: "#f59e0b" },
-    { label: "Assets", value: budget.assets, color: "#8b5cf6" },
-  ];
+    params.cleaning_enabled && {
+      label: "Cleaning",
+      value: budget.cleaning,
+      color: "#0ea5e9",
+    },
+    params.safety_enabled && {
+      label: "Safety",
+      value: budget.safety,
+      color: "#059669",
+    },
+    params.marketing_enabled && {
+      label: "Marketing",
+      value: budget.marketing,
+      color: "#f59e0b",
+    },
+    params.assets_enabled && {
+      label: "Assets",
+      value: budget.assets,
+      color: "#8b5cf6",
+    },
+  ].filter(Boolean);
 
   return (
     <div
