@@ -124,7 +124,7 @@ export function EnhancedReportPanel({
           reportData: {
             placeTypology,
             totalPlaces: data.totalPlaces,
-            areaAcres: data.areaAcres.toFixed(1),
+            areaAcres: data.areaAcres,
             totalBudget: budget.total,
           },
           pdfData: pdfResponse.base64,
