@@ -13,7 +13,9 @@ export interface BudgetParameters {
   clean_hours_per_shift: number;
   clean_shifts_per_day: number;
   clean_days_per_week: number;
+  use_area_based_cleaning: boolean; // Toggle between frontage and area-based calculations
   frontage_ft_per_cleaner_hour: number; // Productivity (linear ft swept per hour)
+  acres_per_cleaner_hour: number; // Area-based productivity (acres covered per hour)
   avg_frontage_ft_per_business: number; // Fallback to estimate total frontage
   intensity_weight_clean: number; // Multiplier from service intensity (0.8-1.5)
   supervisor_ratio: number; // Cleaners per 1 supervisor
@@ -61,7 +63,9 @@ export const DEFAULT_BUDGET_PARAMS: BudgetParameters = {
   clean_hours_per_shift: 8,
   clean_shifts_per_day: 1,
   clean_days_per_week: 6,
+  use_area_based_cleaning: false,
   frontage_ft_per_cleaner_hour: 900,
+  acres_per_cleaner_hour: 0.5, // Typical urban cleaning: 0.5 acres per hour
   avg_frontage_ft_per_business: 22,
   intensity_weight_clean: 1.0,
   supervisor_ratio: 8,
@@ -140,14 +144,26 @@ export function calculateServiceIntensity(
 export function calculateCleaningCost(
   params: BudgetParameters,
   frontageEstimate: number,
-  cleanIntensity: number
+  cleanIntensity: number,
+  areaAcres?: number
 ): number {
   if (!params.cleaning_enabled) return 0;
 
-  const cleanerHoursPerDay =
-    (frontageEstimate / params.frontage_ft_per_cleaner_hour) *
-    params.intensity_weight_clean *
-    cleanIntensity;
+  let cleanerHoursPerDay: number;
+
+  if (params.use_area_based_cleaning && areaAcres) {
+    // Area-based calculation: acres ÷ acres per cleaner per hour
+    cleanerHoursPerDay =
+      (areaAcres / params.acres_per_cleaner_hour) *
+      params.intensity_weight_clean *
+      cleanIntensity;
+  } else {
+    // Traditional frontage-based calculation
+    cleanerHoursPerDay =
+      (frontageEstimate / params.frontage_ft_per_cleaner_hour) *
+      params.intensity_weight_clean *
+      cleanIntensity;
+  }
 
   const cleanersNeeded = Math.ceil(
     cleanerHoursPerDay / params.clean_hours_per_shift
@@ -251,7 +267,8 @@ export function calculateBudget(
   const cleaningCost = calculateCleaningCost(
     params,
     frontageEstimate,
-    cleanIntensity
+    cleanIntensity,
+    areaAcres
   );
   const safetyCost = calculateSafetyCost(params, nightIntensity);
   const assetsCost = calculateAssetsCost(params, frontageEstimate);
@@ -284,22 +301,41 @@ export function calculateBudget(
 
     // Staffing estimates
     cleanersNeeded: params.cleaning_enabled
-      ? Math.ceil(
-          ((frontageEstimate / params.frontage_ft_per_cleaner_hour) *
-            params.intensity_weight_clean *
-            cleanIntensity) /
-            params.clean_hours_per_shift
-        )
+      ? (() => {
+          let cleanerHoursPerDay: number;
+          if (params.use_area_based_cleaning) {
+            cleanerHoursPerDay =
+              (areaAcres / params.acres_per_cleaner_hour) *
+              params.intensity_weight_clean *
+              cleanIntensity;
+          } else {
+            cleanerHoursPerDay =
+              (frontageEstimate / params.frontage_ft_per_cleaner_hour) *
+              params.intensity_weight_clean *
+              cleanIntensity;
+          }
+          return Math.ceil(cleanerHoursPerDay / params.clean_hours_per_shift);
+        })()
       : 0,
     supervisorsNeeded: params.cleaning_enabled
-      ? Math.ceil(
-          Math.ceil(
-            ((frontageEstimate / params.frontage_ft_per_cleaner_hour) *
+      ? (() => {
+          let cleanerHoursPerDay: number;
+          if (params.use_area_based_cleaning) {
+            cleanerHoursPerDay =
+              (areaAcres / params.acres_per_cleaner_hour) *
               params.intensity_weight_clean *
-              cleanIntensity) /
-              params.clean_hours_per_shift
-          ) / params.supervisor_ratio
-        )
+              cleanIntensity;
+          } else {
+            cleanerHoursPerDay =
+              (frontageEstimate / params.frontage_ft_per_cleaner_hour) *
+              params.intensity_weight_clean *
+              cleanIntensity;
+          }
+          const cleanersNeeded = Math.ceil(
+            cleanerHoursPerDay / params.clean_hours_per_shift
+          );
+          return Math.ceil(cleanersNeeded / params.supervisor_ratio);
+        })()
       : 0,
     safetyFTE: params.safety_enabled
       ? Math.ceil(params.safety_hours_per_day / 8.0) * nightIntensity

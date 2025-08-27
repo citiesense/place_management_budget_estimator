@@ -1123,6 +1123,96 @@ function ParameterSliders({ params, updateParam, budget }: any) {
         </div>
       </div>
 
+      {/* Detailed Cost Breakdown */}
+      <div
+        style={{
+          backgroundColor: "#f8fafc",
+          borderRadius: "8px",
+          padding: "1rem",
+          marginBottom: "1.5rem",
+          fontSize: "0.9rem",
+        }}
+      >
+        <h4 style={{ margin: "0 0 0.5rem", color: "#1e293b" }}>
+          Cost Breakdown
+        </h4>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "0.5rem",
+          }}
+        >
+          {params.cleaning_enabled && (
+            <>
+              <div>Cleaners ({budget.cleanersNeeded}):</div>
+              <div>
+                $
+                {(
+                  budget.cleaning -
+                    budget.supervisorsNeeded *
+                      params.clean_hours_per_shift *
+                      params.clean_days_per_week *
+                      52 *
+                      params.supervisor_loaded_rate || 0
+                ).toLocaleString()}
+              </div>
+              <div>Supervisors ({budget.supervisorsNeeded}):</div>
+              <div>
+                $
+                {(
+                  budget.supervisorsNeeded *
+                    params.clean_hours_per_shift *
+                    params.clean_days_per_week *
+                    52 *
+                    params.supervisor_loaded_rate || 0
+                ).toLocaleString()}
+              </div>
+            </>
+          )}
+          {params.safety_enabled && (
+            <>
+              <div>Safety ({budget.safetyFTE.toFixed(1)} FTE):</div>
+              <div>${budget.safety.toLocaleString()}</div>
+            </>
+          )}
+          {params.marketing_enabled && (
+            <>
+              <div>Marketing & Events:</div>
+              <div>${budget.marketing.toLocaleString()}</div>
+            </>
+          )}
+          {params.assets_enabled && (
+            <>
+              <div>Streetscape Assets:</div>
+              <div>${budget.assets.toLocaleString()}</div>
+            </>
+          )}
+          <div
+            style={{
+              fontWeight: "bold",
+              borderTop: "1px solid #e2e8f0",
+              paddingTop: "0.5rem",
+            }}
+          >
+            Subtotal:
+          </div>
+          <div
+            style={{
+              fontWeight: "bold",
+              borderTop: "1px solid #e2e8f0",
+              paddingTop: "0.5rem",
+            }}
+          >
+            ${budget.subtotal.toLocaleString()}
+          </div>
+          <div>
+            Admin Overhead ({(params.admin_overhead_pct * 100).toFixed(0)}%):
+          </div>
+          <div>${budget.adminOverhead.toLocaleString()}</div>
+        </div>
+      </div>
+
       {/* Cleaning Parameters */}
       <ParameterSection title="Cleaning & Maintenance">
         <div style={{ marginBottom: "1rem" }}>
@@ -1158,20 +1248,69 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               step={1}
               onChange={(v) => updateParam("clean_days_per_week", v)}
             />
+
+            {/* Calculation Method Toggle */}
+            <div
+              style={{
+                marginBottom: "1rem",
+                padding: "1rem",
+                backgroundColor: "#f0f9ff",
+                borderRadius: "6px",
+              }}
+            >
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  marginBottom: "0.5rem",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={params.use_area_based_cleaning}
+                  onChange={(e) =>
+                    updateParam("use_area_based_cleaning", e.target.checked)
+                  }
+                />
+                <span style={{ fontWeight: "500" }}>
+                  Use Area-Based Cleaning Calculation
+                </span>
+              </label>
+              <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                {params.use_area_based_cleaning
+                  ? "Calculates cleaning needs based on total district area (more accurate for plazas, pedestrian areas)"
+                  : "Calculates cleaning needs based on estimated business frontage (traditional method)"}
+              </div>
+            </div>
+
+            {params.use_area_based_cleaning ? (
+              <SliderInput
+                label="Area Coverage (acres/hour)"
+                value={params.acres_per_cleaner_hour}
+                min={0.1}
+                max={2.0}
+                step={0.1}
+                unit="acres"
+                onChange={(v) => updateParam("acres_per_cleaner_hour", v)}
+              />
+            ) : (
+              <SliderInput
+                label="Productivity (ft/hour)"
+                value={params.frontage_ft_per_cleaner_hour}
+                min={500}
+                max={1500}
+                step={50}
+                unit="ft"
+                onChange={(v) => updateParam("frontage_ft_per_cleaner_hour", v)}
+              />
+            )}
+
             <SliderInput
-              label="Productivity (ft/hour)"
-              value={params.frontage_ft_per_cleaner_hour}
-              min={500}
-              max={1500}
-              step={50}
-              unit="ft"
-              onChange={(v) => updateParam("frontage_ft_per_cleaner_hour", v)}
-            />
-            <SliderInput
-              label="Supervisor Ratio"
+              label="Supervisor Ratio (cleaners per supervisor)"
               value={params.supervisor_ratio}
               min={4}
-              max={12}
+              max={20}
               step={1}
               unit=":1"
               onChange={(v) => updateParam("supervisor_ratio", v)}
