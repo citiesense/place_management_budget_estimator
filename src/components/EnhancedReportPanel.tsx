@@ -1145,7 +1145,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Cleaner Hourly Rate (loaded)"
               value={params.clean_loaded_rate}
               min={20}
-              max={50}
+              max={100}
               step={1}
               unit="$/hr"
               onChange={(v) => updateParam("clean_loaded_rate", v)}
@@ -1200,7 +1200,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Ambassador Hourly Rate"
               value={params.safety_loaded_rate}
               min={25}
-              max={60}
+              max={150}
               step={1}
               unit="$/hr"
               onChange={(v) => updateParam("safety_loaded_rate", v)}
@@ -1248,8 +1248,8 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Base Annual Marketing"
               value={params.marketing_base_annual}
               min={10000}
-              max={100000}
-              step={5000}
+              max={500000}
+              step={10000}
               unit="$"
               onChange={(v) => updateParam("marketing_base_annual", v)}
             />
@@ -1257,7 +1257,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Per Business Marketing"
               value={params.marketing_per_business}
               min={20}
-              max={200}
+              max={500}
               step={10}
               unit="$"
               onChange={(v) => updateParam("marketing_per_business", v)}
@@ -1266,7 +1266,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Events per Year"
               value={params.events_per_year}
               min={0}
-              max={24}
+              max={52}
               step={1}
               onChange={(v) => updateParam("events_per_year", v)}
             />
@@ -1274,8 +1274,8 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Cost per Event"
               value={params.cost_per_event}
               min={1000}
-              max={20000}
-              step={1000}
+              max={100000}
+              step={2500}
               unit="$"
               onChange={(v) => updateParam("cost_per_event", v)}
             />
@@ -1312,8 +1312,8 @@ function ParameterSliders({ params, updateParam, budget }: any) {
               label="Trash Can Unit Cost"
               value={params.trash_can_unit_cost}
               min={500}
-              max={2000}
-              step={50}
+              max={8000}
+              step={100}
               unit="$"
               onChange={(v) => updateParam("trash_can_unit_cost", v)}
             />
@@ -1363,7 +1363,7 @@ function ParameterSliders({ params, updateParam, budget }: any) {
           label="Admin Overhead"
           value={params.admin_overhead_pct * 100}
           min={5}
-          max={25}
+          max={100}
           step={1}
           unit="%"
           onChange={(v) => updateParam("admin_overhead_pct", v / 100)}
