@@ -39,11 +39,18 @@ export async function handler(event) {
     const bqParams = [];
     const paramTypes = [];
     for (const [name, value] of Object.entries(params)) {
-      // GeoJSON should be passed as STRING to ST_GEOGFROMGEOJSON
-      // BigQuery will convert it to GEOGRAPHY internally
+      // Handle different parameter types
       if (typeof value === 'number') {
         bqParams.push({ name, parameterType: { type: Number.isInteger(value) ? 'INT64' : 'FLOAT64' }, parameterValue: { value: String(value) } });
         paramTypes.push({ name, type: Number.isInteger(value) ? 'INT64' : 'FLOAT64' });
+      } else if (Array.isArray(value)) {
+        // Handle array parameters (for IN UNNEST queries)
+        bqParams.push({ 
+          name, 
+          parameterType: { type: 'ARRAY', arrayType: { type: 'STRING' } }, 
+          parameterValue: { arrayValues: value.map(v => ({ value: String(v) })) } 
+        });
+        paramTypes.push({ name, type: 'ARRAY<STRING>' });
       } else {
         // All string parameters including polygon_geojson
         bqParams.push({ name, parameterType: { type: 'STRING' }, parameterValue: { value: String(value) } });
