@@ -51,6 +51,7 @@ export default function Root() {
   ]);
   const [useMetricUnits, setUseMetricUnits] = useState(true);
   const [segmentsGeoJSON, setSegmentsGeoJSON] = useState<any>(null);
+  const [useDeduplication, setUseDeduplication] = useState(false);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -337,8 +338,11 @@ export default function Root() {
   async function fetchSegments() {
     if (!polygon) return;
     try {
-      const segmentsTable = 
-        import.meta.env.VITE_SEGMENTS_TABLE || "ginkgo-map-data.overture_na.segment_view";
+      // Use dedup view if deduplication is enabled
+      const baseTable = import.meta.env.VITE_SEGMENTS_TABLE || "ginkgo-map-data.overture_na.segment_view";
+      const segmentsTable = useDeduplication 
+        ? baseTable.replace("segment_view", "segment_view_dedup_simple")
+        : baseTable;
       
       
       // Query to get road segments within polygon
@@ -1147,6 +1151,8 @@ export default function Root() {
           useMetricUnits={useMetricUnits}
           setUseMetricUnits={setUseMetricUnits}
           segmentsGeoJSON={segmentsGeoJSON}
+          useDeduplication={useDeduplication}
+          setUseDeduplication={setUseDeduplication}
         />
       )}
     </div>
