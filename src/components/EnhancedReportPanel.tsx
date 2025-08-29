@@ -15,6 +15,18 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 // Register Chart.js components
 ChartJS.register(ArcElement, Tooltip, Legend);
 
+// Road class options for filtering
+const ROAD_CLASS_OPTIONS = [
+  { value: 'motorway', label: 'Motorways', color: '#E63946', description: 'Major highways' },
+  { value: 'trunk', label: 'Trunk Roads', color: '#F77F00', description: 'Major arterials' },
+  { value: 'primary', label: 'Primary Roads', color: '#FF6B6B', description: 'Main roads' },
+  { value: 'secondary', label: 'Secondary Roads', color: '#4ECDC4', description: 'Important local roads' },
+  { value: 'tertiary', label: 'Tertiary Roads', color: '#06FFA5', description: 'Local connector roads' },
+  { value: 'residential', label: 'Residential Streets', color: '#95E77E', description: 'Neighborhood streets' },
+  { value: 'service', label: 'Service Roads', color: '#A8E6CF', description: 'Parking lots, service roads' },
+  { value: 'unclassified', label: 'Unclassified Roads', color: '#B4B4B4', description: 'Other roads' },
+];
+
 interface EnhancedReportPanelProps {
   data: any;
   onClose: () => void;
@@ -22,6 +34,13 @@ interface EnhancedReportPanelProps {
   onFullReportToggle?: (isFullReport: boolean) => void;
   polygon?: any; // For PDF map generation
   mapboxToken?: string; // For PDF map generation
+  // Road segments props
+  selectedRoadClasses?: string[];
+  setSelectedRoadClasses?: (classes: string[]) => void;
+  onApplyRoadFilters?: () => void;
+  useMetricUnits?: boolean;
+  setUseMetricUnits?: (metric: boolean) => void;
+  segmentsGeoJSON?: any; // Raw GeoJSON FeatureCollection for export
 }
 
 export function EnhancedReportPanel({
@@ -31,30 +50,36 @@ export function EnhancedReportPanel({
   onFullReportToggle,
   polygon,
   mapboxToken,
+  selectedRoadClasses = [],
+  setSelectedRoadClasses = () => {},
+  onApplyRoadFilters = () => {},
+  useMetricUnits = true,
+  setUseMetricUnits = () => {},
+  segmentsGeoJSON = null,
 }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<
-    "executive" | "details" | "parameters"
+    "executive" | "details" | "parameters" | "roads"
   >("executive");
   const [showFullReport, setShowFullReport] = useState(!mapVisible);
 
   // Calculate budget with current parameters
   const budget = calculateBudget(
     params,
-    data.totalPlaces,
-    data.areaAcres,
-    data.perimeterFt || data.areaAcres * 1320, // Estimate if not provided
-    data.categoryBreakdown
+    data.totalPlaces || 0,
+    data.areaAcres || 0,
+    data.perimeterFt || (data.areaAcres || 0) * 1320, // Estimate if not provided
+    data.categoryBreakdown || {}
   );
 
   const placeTypology = determinePlaceTypology(
-    data.categoryBreakdown,
-    data.totalPlaces
+    data.categoryBreakdown || {},
+    data.totalPlaces || 0
   );
   const serviceDemands = getServiceDemandIndicators(
-    data.totalPlaces,
-    data.areaAcres,
-    data.categoryBreakdown,
+    data.totalPlaces || 0,
+    data.areaAcres || 0,
+    data.categoryBreakdown || {},
     budget.cleanIntensity,
     budget.nightIntensity
   );
@@ -327,7 +352,7 @@ export function EnhancedReportPanel({
           backgroundColor: ginkgoTheme.colors.background.main,
         }}
       >
-        {(["executive", "details", "parameters"] as const).map((tab) => (
+        {["executive", "details", "parameters", ...(data.segments ? ["roads"] : [])].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -350,11 +375,10 @@ export function EnhancedReportPanel({
               transition: "all 0.2s ease",
             }}
           >
-            {tab === "executive"
-              ? "Executive Summary"
-              : tab === "details"
-              ? "Service Details"
-              : "Budget Parameters"}
+            {tab === "executive" && "Executive Summary"}
+            {tab === "details" && "Service Details"}
+            {tab === "parameters" && "Budget Parameters"}
+            {tab === "roads" && "Road Analytics"}
           </button>
         ))}
       </div>
@@ -385,6 +409,18 @@ export function EnhancedReportPanel({
             params={params}
             updateParam={updateParam}
             budget={budget}
+          />
+        )}
+
+        {activeTab === "roads" && data.segments && (
+          <RoadsAnalytics
+            data={data}
+            selectedRoadClasses={selectedRoadClasses}
+            setSelectedRoadClasses={setSelectedRoadClasses}
+            onApplyRoadFilters={onApplyRoadFilters}
+            useMetricUnits={useMetricUnits}
+            setUseMetricUnits={setUseMetricUnits}
+            segmentsGeoJSON={segmentsGeoJSON}
           />
         )}
       </div>
@@ -2076,6 +2112,507 @@ function CategoryPieChart({ data }: { data: any }) {
           Total Businesses
         </div>
       </div>
+    </div>
+  );
+}
+
+// Export road data as GeoJSON
+function exportRoadData(segmentsData: any, segmentsGeoJSON: any, selectedRoadClasses: string[]) {
+  try {
+    if (!segmentsGeoJSON || !segmentsGeoJSON.features) {
+      alert("No segment data available for export. Please ensure road segments are loaded.");
+      return;
+    }
+
+    // Filter features based on selected road classes if any filters are applied
+    let filteredFeatures = segmentsGeoJSON.features;
+    if (selectedRoadClasses.length > 0 && selectedRoadClasses.length < 8) { // 8 is total road classes
+      filteredFeatures = segmentsGeoJSON.features.filter((feature: any) => 
+        selectedRoadClasses.includes(feature.properties.class)
+      );
+    }
+    
+    // Create GeoJSON structure with metadata
+    const geojson = {
+      type: "FeatureCollection",
+      features: filteredFeatures,
+      metadata: {
+        exportedAt: new Date().toISOString(),
+        totalSegments: filteredFeatures.length,
+        totalLengthMeters: segmentsData.totalLengthM,
+        totalLengthMiles: segmentsData.totalLengthMiles,
+        roadClassesIncluded: selectedRoadClasses.length > 0 ? selectedRoadClasses : "all",
+        exportedBy: "Ginkgo BID Budget Estimator",
+        note: "Road segments exported with current filter settings"
+      }
+    };
+    
+    // Create filename with timestamp and filter info
+    const timestamp = new Date().toISOString().split('T')[0];
+    const classCount = selectedRoadClasses.length > 0 ? selectedRoadClasses.length : 8;
+    const filename = `road_segments_${classCount}classes_${filteredFeatures.length}segments_${timestamp}.geojson`;
+    
+    // Create and download the file
+    const dataStr = JSON.stringify(geojson, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    // Create download link
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    // GeoJSON export completed successfully
+    
+  } catch (error) {
+    // Export failed silently
+    alert("Export failed. Please try again.");
+  }
+}
+
+// Roads Analytics Component
+function RoadsAnalytics({ 
+  data, 
+  selectedRoadClasses, 
+  setSelectedRoadClasses, 
+  onApplyRoadFilters, 
+  useMetricUnits, 
+  setUseMetricUnits,
+  segmentsGeoJSON
+}: {
+  data: any;
+  selectedRoadClasses: string[];
+  setSelectedRoadClasses: (classes: string[]) => void;
+  onApplyRoadFilters: () => void;
+  useMetricUnits: boolean;
+  setUseMetricUnits: (metric: boolean) => void;
+  segmentsGeoJSON: any;
+}) {
+  return (
+    <div style={{ padding: "1rem" }}>
+      {/* Header */}
+      <div style={{ 
+        display: "flex", 
+        justifyContent: "space-between", 
+        alignItems: "center", 
+        marginBottom: "1.5rem" 
+      }}>
+        <h2 style={{ 
+          fontSize: "1.8rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          margin: 0
+        }}>
+          Road Network Analysis
+        </h2>
+        
+        {/* Toggle Controls */}
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          
+          {/* Unit Toggle */}
+          <button
+            onClick={() => setUseMetricUnits(!useMetricUnits)}
+            style={{
+              padding: "8px 12px",
+              fontSize: "14px",
+              background: useMetricUnits ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.primary.orange,
+              color: ginkgoTheme.colors.primary.navy,
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: 600,
+              transition: "all 0.2s ease"
+            }}
+          >
+            {useMetricUnits ? "Metric (KM)" : "Imperial (MI)"}
+          </button>
+        </div>
+      </div>
+      
+      {/* Road Filters Section */}
+      <div style={{ 
+        background: ginkgoTheme.colors.background.light,
+        padding: "1.5rem",
+        borderRadius: "8px",
+        marginBottom: "2rem"
+      }}>
+        <h3 style={{ 
+          fontSize: "1.2rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          marginBottom: "1rem" 
+        }}>
+          Filter Road Types
+        </h3>
+        
+        {/* Select All/None buttons */}
+        <div style={{ display: "flex", gap: "8px", marginBottom: "1rem" }}>
+          <button
+            onClick={() => setSelectedRoadClasses(ROAD_CLASS_OPTIONS.map(opt => opt.value))}
+            style={{
+              padding: "8px 16px",
+              fontSize: "14px",
+              background: ginkgoTheme.colors.primary.green,
+              color: ginkgoTheme.colors.primary.navy,
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: 500
+            }}
+          >
+            Select All
+          </button>
+          <button
+            onClick={() => setSelectedRoadClasses([])}
+            style={{
+              padding: "8px 16px",
+              fontSize: "14px",
+              background: ginkgoTheme.colors.text.light,
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: 500
+            }}
+          >
+            Clear All
+          </button>
+        </div>
+        
+        {/* Road class checkboxes */}
+        <div style={{ 
+          display: "grid", 
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", 
+          gap: "12px",
+          marginBottom: "1rem"
+        }}>
+          {ROAD_CLASS_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                cursor: "pointer",
+                fontSize: "14px",
+                color: ginkgoTheme.colors.primary.navy,
+                padding: "8px",
+                borderRadius: "6px",
+                backgroundColor: selectedRoadClasses.includes(option.value) 
+                  ? ginkgoTheme.colors.secondary.lightGray 
+                  : "transparent",
+                border: `1px solid ${selectedRoadClasses.includes(option.value) 
+                  ? ginkgoTheme.colors.primary.green 
+                  : ginkgoTheme.colors.secondary.lightGray}`,
+                transition: "all 0.2s ease"
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selectedRoadClasses.includes(option.value)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedRoadClasses([...selectedRoadClasses, option.value]);
+                  } else {
+                    setSelectedRoadClasses(selectedRoadClasses.filter(cls => cls !== option.value));
+                  }
+                }}
+                style={{ cursor: "pointer", transform: "scale(1.2)" }}
+              />
+              <div
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  borderRadius: "3px",
+                  backgroundColor: option.color,
+                  flexShrink: 0
+                }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>{option.label}</div>
+                <div style={{ fontSize: "12px", color: ginkgoTheme.colors.text.light }}>
+                  {option.description}
+                </div>
+              </div>
+            </label>
+          ))}
+        </div>
+        
+        {/* Apply filters button */}
+        <button
+          onClick={onApplyRoadFilters}
+          style={{
+            width: "100%",
+            padding: "12px",
+            fontSize: "16px",
+            background: ginkgoTheme.colors.button.secondaryBg,
+            color: ginkgoTheme.colors.button.secondaryText,
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer",
+            fontWeight: 600,
+            transition: "all 0.3s ease"
+          }}
+          disabled={selectedRoadClasses.length === 0}
+        >
+          Apply Filters ({selectedRoadClasses.length} selected)
+        </button>
+      </div>
+
+      {/* Road Analytics Dashboard */}
+      {data.segments && data.segments.classByClass && data.segments.classByClass.length > 0 && (
+        <div style={{ 
+          background: "white",
+          padding: "1.5rem",
+          borderRadius: "8px",
+          border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`
+        }}>
+          <h3 style={{ 
+            fontSize: "1.2rem", 
+            fontWeight: 600, 
+            color: ginkgoTheme.colors.primary.navy,
+            marginBottom: "1.5rem" 
+          }}>
+            Road Network Metrics
+          </h3>
+          
+          {/* Overall Statistics */}
+          <div style={{ 
+            background: ginkgoTheme.colors.background.light,
+            padding: "1.5rem",
+            borderRadius: "8px",
+            marginBottom: "1.5rem"
+          }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+              <div>
+                <div style={{ 
+                  fontSize: "12px", 
+                  color: ginkgoTheme.colors.text.light,
+                  marginBottom: "4px"
+                }}>Total Length</div>
+                <div style={{ 
+                  fontSize: "1.5rem",
+                  fontWeight: 700, 
+                  color: ginkgoTheme.colors.primary.navy 
+                }}>
+                  {useMetricUnits 
+                    ? `${(data.segments.totalLengthM / 1000).toFixed(1)} km`
+                    : `${data.segments.totalLengthMiles.toFixed(1)} mi`
+                  }
+                </div>
+              </div>
+              <div>
+                <div style={{ 
+                  fontSize: "12px", 
+                  color: ginkgoTheme.colors.text.light,
+                  marginBottom: "4px"
+                }}>Road Density</div>
+                <div style={{ 
+                  fontSize: "1.5rem",
+                  fontWeight: 700, 
+                  color: ginkgoTheme.colors.primary.navy 
+                }}>
+                  {useMetricUnits
+                    ? `${data.segments.densityPerKm2.toFixed(1)} m/km²`
+                    : `${data.segments.densityPerMile2.toFixed(1)} ft/mi²`
+                  }
+                </div>
+              </div>
+              <div>
+                <div style={{ 
+                  fontSize: "12px", 
+                  color: ginkgoTheme.colors.text.light,
+                  marginBottom: "4px"
+                }}>Road Types</div>
+                <div style={{ 
+                  fontSize: "1.5rem",
+                  fontWeight: 700, 
+                  color: ginkgoTheme.colors.primary.navy 
+                }}>
+                  {data.segments.classByClass.length}
+                </div>
+              </div>
+              <div>
+                <div style={{ 
+                  fontSize: "12px", 
+                  color: ginkgoTheme.colors.text.light,
+                  marginBottom: "4px"
+                }}>Total Segments</div>
+                <div style={{ 
+                  fontSize: "1.5rem",
+                  fontWeight: 700, 
+                  color: ginkgoTheme.colors.primary.navy 
+                }}>
+                  {data.segments.total.toLocaleString()}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Road Class Breakdown */}
+          <div>
+            <h4 style={{ 
+              fontSize: "1rem", 
+              fontWeight: 600, 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "1rem"
+            }}>
+              Road Class Breakdown
+            </h4>
+            
+            <div style={{ display: "grid", gap: "12px" }}>
+              {data.segments.classByClass
+                .sort((a: any, b: any) => b.lengthM - a.lengthM)
+                .map((classData: any) => {
+                  const percentage = (classData.lengthM / data.segments.totalLengthM * 100);
+                  const displayLength = useMetricUnits 
+                    ? `${(classData.lengthM / 1000).toFixed(1)} km`
+                    : `${classData.lengthMiles.toFixed(1)} mi`;
+                  
+                  return (
+                    <div key={classData.class} style={{ 
+                      padding: "12px",
+                      border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+                      borderRadius: "6px"
+                    }}>
+                      <div style={{ 
+                        display: "flex", 
+                        justifyContent: "space-between", 
+                        alignItems: "center",
+                        marginBottom: "8px"
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <div
+                            style={{
+                              width: "16px",
+                              height: "16px",
+                              borderRadius: "3px",
+                              backgroundColor: classData.color,
+                              flexShrink: 0
+                            }}
+                          />
+                          <span style={{ 
+                            fontSize: "16px",
+                            fontWeight: 600,
+                            color: ginkgoTheme.colors.primary.navy
+                          }}>
+                            {ROAD_CLASS_OPTIONS.find(opt => opt.value === classData.class)?.label || classData.class}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                          <span style={{ 
+                            fontSize: "14px",
+                            color: ginkgoTheme.colors.text.light 
+                          }}>
+                            {displayLength}
+                          </span>
+                          <span style={{ 
+                            fontSize: "16px",
+                            fontWeight: 700,
+                            color: ginkgoTheme.colors.primary.orange,
+                            minWidth: "50px",
+                            textAlign: "right"
+                          }}>
+                            {percentage.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Progress bar */}
+                      <div style={{
+                        width: "100%",
+                        height: "8px",
+                        backgroundColor: ginkgoTheme.colors.secondary.lightGray,
+                        borderRadius: "4px",
+                        overflow: "hidden"
+                      }}>
+                        <div
+                          style={{
+                            width: `${percentage}%`,
+                            height: "100%",
+                            backgroundColor: classData.color,
+                            borderRadius: "4px",
+                            transition: "width 0.3s ease"
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </div>
+          
+          {/* Export Section */}
+          <div style={{
+            marginTop: "2rem",
+            padding: "1.5rem",
+            background: ginkgoTheme.colors.background.light,
+            borderRadius: "8px",
+            borderTop: `3px solid ${ginkgoTheme.colors.primary.green}`
+          }}>
+            <h4 style={{ 
+              fontSize: "1rem", 
+              fontWeight: 600, 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "1rem"
+            }}>
+              Export Road Data
+            </h4>
+            <p style={{
+              fontSize: "14px",
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "1rem",
+              lineHeight: "1.4"
+            }}>
+              Download the current road segments (with applied filters) as GeoJSON for use in GIS applications, QGIS, or further analysis.
+            </p>
+            
+            <button
+              onClick={() => exportRoadData(data.segments, segmentsGeoJSON, selectedRoadClasses)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                fontSize: "16px",
+                background: ginkgoTheme.colors.primary.green,
+                color: ginkgoTheme.colors.primary.navy,
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                transition: "all 0.3s ease",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px"
+              }}
+            >
+              Download Road Segments (GeoJSON)
+            </button>
+            
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px",
+              marginTop: "8px",
+              fontSize: "12px",
+              color: ginkgoTheme.colors.text.light
+            }}>
+              <div>
+                <strong>{data.segments.total}</strong> segments
+              </div>
+              <div>
+                <strong>{data.segments.classByClass.length}</strong> road types
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -118,11 +118,20 @@ export const CATEGORY_WEIGHTS = {
 
 // Calculate service intensity from business mix
 export function calculateServiceIntensity(
-  categoryBreakdown: Record<string, number>
+  categoryBreakdown: Record<string, number> | null | undefined
 ) {
   let totalWeightedClean = 0;
   let totalWeightedNight = 0;
   let totalBusinesses = 0;
+
+  // Handle null/undefined case
+  if (!categoryBreakdown || typeof categoryBreakdown !== 'object') {
+    return {
+      cleanIntensity: 1.0, // Default baseline
+      nightIntensity: 1.0, // Default baseline
+      totalBusinesses: 0
+    };
+  }
 
   for (const [category, count] of Object.entries(categoryBreakdown)) {
     const weights =
@@ -254,7 +263,7 @@ export function calculateBudget(
   businessCount: number,
   areaAcres: number,
   perimeterFt: number,
-  categoryBreakdown: Record<string, number>
+  categoryBreakdown: Record<string, number> | null | undefined
 ) {
   // Estimate frontage (can be refined with actual storefront data)
   const frontageEstimate = businessCount * params.avg_frontage_ft_per_business;
@@ -345,10 +354,10 @@ export function calculateBudget(
 
 // Determine place typology based on business mix
 export function determinePlaceTypology(
-  categoryBreakdown: Record<string, number>,
+  categoryBreakdown: Record<string, number> | null | undefined,
   totalPlaces: number
 ) {
-  if (totalPlaces === 0) return "Low Density";
+  if (totalPlaces === 0 || !categoryBreakdown) return "Low Density";
 
   const percentages = Object.entries(categoryBreakdown).map(([cat, count]) => ({
     category: cat,
@@ -408,21 +417,22 @@ export function determinePlaceTypology(
 export function getServiceDemandIndicators(
   businessCount: number,
   areaAcres: number,
-  categoryBreakdown: Record<string, number>,
+  categoryBreakdown: Record<string, number> | null | undefined,
   cleanIntensity: number,
   nightIntensity: number
 ) {
-  const density = businessCount / areaAcres;
-  const foodPercentage =
-    (((categoryBreakdown.food || 0) + (categoryBreakdown.restaurant || 0)) /
-      businessCount) *
-    100;
-  const retailPercentage =
-    (((categoryBreakdown.retail || 0) + (categoryBreakdown.shopping || 0)) /
-      businessCount) *
-    100;
-  const entertainmentPercentage =
-    ((categoryBreakdown.entertainment || 0) / businessCount) * 100;
+  const density = areaAcres > 0 ? businessCount / areaAcres : 0;
+  
+  // Handle null/undefined categoryBreakdown
+  const safeBreakdown = categoryBreakdown || {};
+  
+  const foodPercentage = businessCount > 0 ?
+    (((safeBreakdown.food || 0) + (safeBreakdown.restaurant || 0)) / businessCount) * 100 : 0;
+  
+  const retailPercentage = businessCount > 0 ?
+    (((safeBreakdown.retail || 0) + (safeBreakdown.shopping || 0)) / businessCount) * 100 : 0;
+  const entertainmentPercentage = businessCount > 0 ?
+    ((safeBreakdown.entertainment || 0) / businessCount) * 100 : 0;
 
   return {
     cleaning: {

@@ -13,9 +13,29 @@ import {
 } from "./components/GinkgoStyledPanel";
 import { ginkgoTheme } from "./styles/ginkgoTheme";
 import { CATEGORY_COLORS } from "./constants/categoryColors";
+import { 
+  addSmartSegmentsLayers, 
+  removeAllSegmentLayers, 
+  toggleSegmentLayerVisibility,
+  addSegmentInteractions,
+  logPerformanceMetrics,
+  testMVTEndpoint
+} from "./utils/mvtIntegration";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
+
+// Road class options for filtering
+const ROAD_CLASS_OPTIONS = [
+  { value: 'motorway', label: 'Motorways', color: '#E63946', description: 'Major highways' },
+  { value: 'trunk', label: 'Trunk Roads', color: '#F77F00', description: 'Major arterials' },
+  { value: 'primary', label: 'Primary Roads', color: '#FF6B6B', description: 'Main roads' },
+  { value: 'secondary', label: 'Secondary Roads', color: '#4ECDC4', description: 'Important local roads' },
+  { value: 'tertiary', label: 'Tertiary Roads', color: '#06FFA5', description: 'Local connector roads' },
+  { value: 'residential', label: 'Residential Streets', color: '#95E77E', description: 'Neighborhood streets' },
+  { value: 'service', label: 'Service Roads', color: '#A8E6CF', description: 'Parking lots, service roads' },
+  { value: 'unclassified', label: 'Unclassified Roads', color: '#B4B4B4', description: 'Other roads' },
+];
 
 type FeatureCollection = GeoJSON.FeatureCollection;
 
@@ -31,6 +51,17 @@ export default function Root() {
   const [showLocationSearch, setShowLocationSearch] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<string>("");
   const [showSidebar, setShowSidebar] = useState(true);
+  const [segmentsData, setSegmentsData] = useState<FeatureCollection | null>(null);
+  const [segmentCount, setSegmentCount] = useState<number | null>(null);
+  const [showSegments, setShowSegments] = useState(true);
+  const [selectedRoadClasses, setSelectedRoadClasses] = useState<string[]>([
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified'
+  ]);
+  const [useMetricUnits, setUseMetricUnits] = useState(true);
+  const [segmentsGeoJSON, setSegmentsGeoJSON] = useState<any>(null);
+  const [useMVTTiles, setUseMVTTiles] = useState(false);
+  const [currentLayerType, setCurrentLayerType] = useState<'mvt' | 'geojson' | 'none'>('none');
+  const [mvtEndpointAvailable, setMvtEndpointAvailable] = useState(false);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -43,6 +74,11 @@ export default function Root() {
     });
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     mapRef.current = map;
+
+    // Test MVT endpoint availability on startup
+    testMVTEndpoint().then(available => {
+      setMvtEndpointAvailable(available);
+    });
 
     // Enhanced polygon drawing with better UX
     let pts: mapboxgl.LngLat[] = [];
@@ -314,11 +350,258 @@ export default function Root() {
     };
   }, []);
 
+  // Simple client-side deduplication for parallel roads
+
+  async function fetchSegments() {
+    if (!polygon) return;
+    try {
+      // Use dedup view if deduplication is enabled
+      const baseTable = import.meta.env.VITE_SEGMENTS_TABLE || "ginkgo-map-data.overture_na.segment_view";
+      const segmentsTable = baseTable; // Use regular table for now
+      
+      
+      // Query to get road segments within polygon
+      const sql = `
+        WITH poly AS (
+          SELECT ST_GEOGFROMGEOJSON(@polygon_geojson) AS g
+        ),
+        segments_in_poly AS (
+          SELECT
+            segment_id,
+            name,
+            class,
+            subclass,
+            geometry,
+            length_meters
+          FROM \`${segmentsTable}\`, poly
+          WHERE ST_INTERSECTS(geometry, poly.g)
+            AND geometry IS NOT NULL
+            AND class IN UNNEST(@selected_classes)
+          LIMIT 5000
+        )
+        SELECT
+          segment_id,
+          name,
+          class,
+          subclass,
+          ST_ASGEOJSON(geometry) AS geom_json,
+          length_meters,
+          -- Overall metrics
+          COUNT(*) OVER() AS total_segments,
+          SUM(length_meters) OVER() AS total_length_m,
+          SUM(length_meters) OVER() / 1609.34 AS total_length_miles,
+          SUM(length_meters) OVER() * 3.28084 AS total_length_ft,
+          -- Per-class metrics
+          COUNT(*) OVER(PARTITION BY class) AS class_count,
+          SUM(length_meters) OVER(PARTITION BY class) AS class_length_m,
+          SUM(length_meters) OVER(PARTITION BY class) / 1609.34 AS class_length_miles,
+          SUM(length_meters) OVER(PARTITION BY class) * 3.28084 AS class_length_ft
+        FROM segments_in_poly
+      `;
+
+      const r = await fetch(import.meta.env.VITE_SQL_PROXY || "/api/sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q: sql,
+          params: {
+            polygon_geojson: JSON.stringify(polygon.features[0].geometry),
+            selected_classes: selectedRoadClasses,
+          },
+        }),
+      });
+
+      const data = await r.json();
+      
+      
+      if (!r.ok)
+        throw new Error(data?.error || `Segments query failed with status ${r.status}`);
+      
+      // Check if response is already in GeoJSON format
+      let fc: FeatureCollection;
+      let totalSegments = 0;
+      
+      if (data.geojson) {
+        // SQL proxy auto-converted to GeoJSON
+        fc = data.geojson;
+        totalSegments = data.count || fc.features.length;
+        
+        // Extract metrics from the first feature if available
+        if (fc.features.length > 0 && fc.features[0].properties) {
+          totalSegments = fc.features[0].properties.total_segments || totalSegments;
+        }
+      } else {
+        // Raw rows format
+        const rows = data.rows || [];
+        
+        // Convert to GeoJSON
+        const features = rows.map((row: any) => ({
+          type: "Feature",
+          properties: {
+            id: row.segment_id,
+            name: row.name,
+            class: row.class,
+            subclass: row.subclass,
+            length_m: row.length_meters,
+          },
+          geometry: JSON.parse(row.geom_json),
+        }));
+
+        fc = {
+          type: "FeatureCollection",
+          features,
+        };
+        
+        totalSegments = rows[0]?.total_segments || 0;
+      }
+      
+      setSegmentsData(fc);
+      setSegmentCount(totalSegments);
+      setSegmentsGeoJSON(fc); // Store for export functionality
+      
+      // Process enhanced metrics data if we have segments
+      if (fc.features.length > 0) {
+        const firstFeature = fc.features[0].properties;
+        
+        // Build detailed class breakdowns from all segments
+        const classMetrics = new Map();
+        fc.features.forEach((feature: any) => {
+          const props = feature.properties;
+          const className = props.class;
+          if (className && !classMetrics.has(className)) {
+            classMetrics.set(className, {
+              class: className,
+              count: props.class_count || 0,
+              lengthM: props.class_length_m || 0,
+              lengthMiles: props.class_length_miles || 0,
+              lengthFt: props.class_length_ft || 0,
+              color: ROAD_CLASS_OPTIONS.find(opt => opt.value === className)?.color || '#999999'
+            });
+          }
+        });
+        
+        const totalLengthM = firstFeature?.total_length_m || 0;
+        const totalLengthMiles = firstFeature?.total_length_miles || 0;
+        
+        // Create segments array from features for RoadsAnalytics component
+        let segmentsArray = fc.features.map((feature: any) => ({
+          segment_id: feature.properties.segment_id,
+          name: feature.properties.name,
+          class: feature.properties.class,
+          subclass: feature.properties.subclass,
+          length_meters: feature.properties.length_meters,
+          merged_count: feature.properties.merged_count || 1,
+          dedup_status: feature.properties.dedup_status || 'original',
+          geometry: feature.geometry,
+          ...feature.properties
+        }));
+
+
+        // Recalculate metrics based on potentially deduplicated segments
+        const actualTotal = segmentsArray.length;
+        const actualTotalLengthM = segmentsArray.reduce((sum, seg) => sum + seg.length_meters, 0);
+        const actualTotalLengthMiles = actualTotalLengthM / 1609.34;
+        const actualTotalLengthFt = actualTotalLengthM * 3.28084;
+
+        // Recalculate class breakdowns with deduplicated data
+        const actualClassMetrics = new Map();
+        segmentsArray.forEach((segment: any) => {
+          const className = segment.class;
+          if (className) {
+            if (!actualClassMetrics.has(className)) {
+              actualClassMetrics.set(className, {
+                class: className,
+                count: 0,
+                lengthM: 0,
+                lengthMiles: 0,
+                lengthFt: 0,
+                color: ROAD_CLASS_OPTIONS.find(opt => opt.value === className)?.color || '#999999'
+              });
+            }
+            const metrics = actualClassMetrics.get(className);
+            metrics.count += 1;
+            metrics.lengthM += segment.length_meters;
+            metrics.lengthMiles += segment.length_meters / 1609.34;
+            metrics.lengthFt += segment.length_meters * 3.28084;
+          }
+        });
+
+        const enhancedSegmentsData = {
+          // Metrics data (using actual deduplicated values)
+          total: actualTotal,
+          totalLengthM: actualTotalLengthM,
+          totalLengthMiles: actualTotalLengthMiles,
+          totalLengthFt: actualTotalLengthFt,
+          classByClass: Array.from(actualClassMetrics.values()),
+          // Calculate density (using estimated area if not available from places)
+          densityPerKm2: reportData?.areaKm2 ? actualTotalLengthM / (reportData.areaKm2 * 1000) : 0,
+          densityPerMile2: reportData?.areaKm2 ? (actualTotalLengthMiles * 5280) / (reportData.areaKm2 * 0.386102) : 0,
+          // Raw segments array for RoadsAnalytics component
+          segments: segmentsArray
+        };
+        
+        
+        // Update report data with enhanced segments metrics
+        if (reportData) {
+          setReportData({
+            ...reportData,
+            segments: enhancedSegmentsData
+          });
+        } else {
+          setReportData({
+            segments: enhancedSegmentsData,
+            // Add default values required by budget calculations
+            totalPlaces: 0,
+            areaAcres: 0,
+            categoryBreakdown: {}
+          });
+        }
+      }
+      
+      // Use smart layer selection (MVT vs GeoJSON)
+      const startTime = Date.now();
+      const map = mapRef.current!;
+      const layerType = addSmartSegmentsLayers(
+        map,
+        fc,
+        totalSegments,
+        selectedRoadClasses,
+        showSegments
+      );
+      const loadTime = Date.now() - startTime;
+      
+      setCurrentLayerType(layerType);
+      logPerformanceMetrics(layerType, totalSegments, loadTime);
+      
+      // Add interaction handlers if layer was created
+      if (layerType !== 'none') {
+        addSegmentInteractions(mapRef.current!, layerType);
+      }
+    } catch (e: any) {
+      // Handle error silently in production
+      setError(e.message);
+    }
+  }
+
+  async function fetchAllData() {
+    if (!polygon) return;
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Fetch segments first, then places (so places render on top)
+      await fetchSegments();
+      await fetchPlaces();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function fetchPlaces() {
     if (!polygon) return;
     try {
-      setLoading(true);
-      setError(null);
 
       // Use the SQL proxy endpoint with the proper query
       const placesTable =
@@ -434,15 +717,97 @@ export default function Root() {
           },
           places: features, // Store individual places for detailed analysis
         };
-        setReportData(metrics);
+        // Preserve existing segments data if it exists
+        setReportData(prevData => ({
+          ...metrics,
+          ...(prevData?.segments && { segments: prevData.segments })
+        }));
       }
 
       addPlacesLayer(fc);
       setPlaceCount(fc.features.length);
     } catch (e: any) {
       setError(e.message);
-    } finally {
-      setLoading(false);
+    }
+  }
+
+  function addSegmentsLayer(fc: FeatureCollection) {
+    const map = mapRef.current!;
+    
+    // Define colors for different road classes
+    const segmentColors: any[] = [
+      "match",
+      ["get", "class"],
+      "motorway", "#E63946",      // Dark red for motorways
+      "trunk", "#F77F00",         // Orange for trunk roads
+      "primary", "#FF6B6B",       // Red for primary roads
+      "secondary", "#4ECDC4",     // Teal for secondary roads
+      "tertiary", "#06FFA5",      // Green for tertiary
+      "residential", "#95E77E",   // Light green for residential
+      "service", "#A8E6CF",       // Pale green for service roads
+      "unclassified", "#B4B4B4",  // Gray for unclassified
+      "motorway_link", "#E63946", // Same as motorway
+      "trunk_link", "#F77F00",    // Same as trunk
+      "primary_link", "#FF6B6B",  // Same as primary
+      "secondary_link", "#4ECDC4", // Same as secondary
+      "tertiary_link", "#06FFA5", // Same as tertiary
+      "#999999"                   // Default gray
+    ];
+    
+    // Add segments source and layer
+    if (!map.getSource("segments")) {
+      map.addSource("segments", { type: "geojson", data: fc });
+      
+      // Add line layer for segments
+      map.addLayer({
+        id: "segments-lines",
+        type: "line",
+        source: "segments",
+        layout: {
+          "line-join": "round",
+          "line-cap": "round",
+        },
+        paint: {
+          "line-color": segmentColors,
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            10, 1,
+            14, 2,
+            18, 4,
+          ],
+          "line-opacity": 0.7,
+        },
+      });
+      
+      // Add hover popup
+      map.on("mouseenter", "segments-lines", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      
+      map.on("mouseleave", "segments-lines", () => {
+        map.getCanvas().style.cursor = "";
+      });
+      
+      map.on("click", "segments-lines", (e) => {
+        if (!e.features || !e.features[0]) return;
+        const props = e.features[0].properties;
+        
+        new mapboxgl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div style="padding: 8px;">
+              <strong>${props.name || "Unnamed Road"}</strong><br/>
+              <span>Class: ${props.class || "Unknown"}</span><br/>
+              ${props.subclass ? `<span>Subclass: ${props.subclass}</span><br/>` : ""}
+              <span>Length: ${props.length_m ? Math.round(props.length_m) + "m" : "N/A"}</span>
+            </div>
+          `)
+          .addTo(map);
+      });
+    } else {
+      (map.getSource("segments") as mapboxgl.GeoJSONSource).setData(fc);
     }
   }
 
@@ -496,6 +861,9 @@ export default function Root() {
       map.removeLayer("places-circles");
       map.removeSource("places");
     }
+    
+    // Clear all segment layers (both MVT and GeoJSON)
+    removeAllSegmentLayers(map);
 
     // Clear drawing layers
     if (map.getSource("drawing-poly")) {
@@ -519,6 +887,10 @@ export default function Root() {
 
     setPolygon(null);
     setPlaceCount(null);
+    setSegmentsData(null);
+    setSegmentCount(null);
+    setSelectedRoadClasses(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified']);
+    setCurrentLayerType('none');
     setError(null);
     setReportData(null);
     setShowReport(false);
@@ -725,7 +1097,7 @@ export default function Root() {
             <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
               <GinkgoButton
                 disabled={loading}
-                onClick={fetchPlaces}
+                onClick={fetchAllData}
                 variant="primary"
               >
                 Analyze District
@@ -750,14 +1122,65 @@ export default function Root() {
             </div>
           )}
 
-          {placeCount !== null && (
+          {(placeCount !== null || segmentCount !== null) && (
             <div style={{ marginTop: "16px" }}>
-              <GinkgoText>
-                <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
-                  {placeCount.toLocaleString()}
-                </strong>{" "}
-                businesses found
-              </GinkgoText>
+              {placeCount !== null && (
+                <GinkgoText>
+                  <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
+                    {placeCount.toLocaleString()}
+                  </strong>{" "}
+                  businesses found
+                </GinkgoText>
+              )}
+              {segmentCount !== null && (
+                <div style={{ marginTop: "8px" }}>
+                  <GinkgoText>
+                    <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
+                      {segmentCount.toLocaleString()}
+                    </strong>{" "}
+                    road segments found
+                  </GinkgoText>
+                  {currentLayerType !== 'none' && (
+                    <GinkgoText style={{ 
+                      fontSize: "11px", 
+                      color: ginkgoTheme.colors.text.light,
+                      marginTop: "2px"
+                    }}>
+                      Rendered with {currentLayerType === 'mvt' ? 'vector tiles' : 'GeoJSON'}
+                      {currentLayerType === 'mvt' && ' ⚡'}
+                    </GinkgoText>
+                  )}
+                </div>
+              )}
+              
+              {/* Toggle for showing/hiding segments */}
+              <div style={{ marginTop: "12px" }}>
+                <label style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  color: ginkgoTheme.colors.primary.navy
+                }}>
+                  <input 
+                    type="checkbox"
+                    checked={showSegments}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setShowSegments(checked);
+                      const map = mapRef.current;
+                      if (map && currentLayerType !== 'none') {
+                        toggleSegmentLayerVisibility(map, checked, currentLayerType);
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Show road segments
+                </label>
+              </div>
+              
+              
             </div>
           )}
 
@@ -798,6 +1221,16 @@ export default function Root() {
           onFullReportToggle={(isFullReport) => setShowFullReport(isFullReport)}
           polygon={polygon}
           mapboxToken={MAPBOX_TOKEN}
+          selectedRoadClasses={selectedRoadClasses}
+          setSelectedRoadClasses={setSelectedRoadClasses}
+          onApplyRoadFilters={() => {
+            if (polygon && selectedRoadClasses.length > 0) {
+              fetchSegments();
+            }
+          }}
+          useMetricUnits={useMetricUnits}
+          setUseMetricUnits={setUseMetricUnits}
+          segmentsGeoJSON={segmentsGeoJSON}
         />
       )}
     </div>
