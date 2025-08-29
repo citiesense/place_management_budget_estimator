@@ -67,6 +67,10 @@ export default function Root() {
   const [buildingsData, setBuildingsData] = useState<FeatureCollection | null>(null);
   const [buildingsMetrics, setBuildingsMetrics] = useState<any>(null);
   const [showBuildings, setShowBuildings] = useState(true);
+  
+  // Places state
+  const [showPlaces, setShowPlaces] = useState(true);
+  const [selectedPlaceCategories, setSelectedPlaceCategories] = useState<string[]>([]);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -728,10 +732,31 @@ export default function Root() {
           ...metrics,
           ...(prevData?.segments && { segments: prevData.segments })
         }));
+
+        // Initialize place categories for filtering (if not already set) - using grouped format
+        if (selectedPlaceCategories.length === 0) {
+          const sortedCategories = Object.entries(metrics.categoryBreakdown || {})
+            .filter(([_, count]) => count > 0)
+            .sort(([, a], [, b]) => b - a);
+          
+          const TOP_CATEGORIES_COUNT = 10;
+          const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
+          const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
+          
+          const initialCategories = topCategories.map(([category]) => category);
+          if (otherCategories.length > 0) {
+            initialCategories.push('others');
+          }
+          
+          setSelectedPlaceCategories(initialCategories);
+        }
       }
 
       addPlacesLayer(fc);
       setPlaceCount(fc.features.length);
+      
+      // Apply initial category filter after layer is added
+      setTimeout(() => applyPlaceCategoryFilter(), 100);
     } catch (e: any) {
       setError(e.message);
     }
@@ -774,7 +799,6 @@ export default function Root() {
       });
       
       const buildingsData = await buildingsResponse.json();
-      console.log("Buildings API response:", buildingsData);
       
       if (!buildingsResponse.ok) {
         throw new Error(buildingsData?.error || `Buildings query failed with status ${buildingsResponse.status}`);
@@ -793,7 +817,6 @@ export default function Root() {
       });
       
       const areaData = await areaResponse.json();
-      console.log("BID area response:", areaData);
       
       if (!areaResponse.ok) {
         throw new Error(areaData?.error || `BID area query failed with status ${areaResponse.status}`);
@@ -820,8 +843,6 @@ export default function Root() {
         buildingRows = buildingsData.rows || [];
       }
       
-      console.log(`Found ${buildingRows.length} buildings in polygon`);
-      console.log("Sample building data:", buildingRows[0]);
       
       // Calculate metrics client-side
       const buildingCount = buildingRows.length;
@@ -866,7 +887,6 @@ export default function Root() {
         avg_levels: avgLevels
       };
       
-      console.log("Calculated building metrics:", metrics);
       setBuildingsMetrics(metrics);
       
       // Use existing GeoJSON or create from rows
@@ -904,13 +924,10 @@ export default function Root() {
         };
       }
 
-      console.log("Created buildings GeoJSON with", fc.features.length, "features");
-      console.log("Sample feature:", fc.features[0]);
       
       setBuildingsData(fc);
       addBuildingsLayer(fc);
       
-      console.log("Added buildings layer to map");
       
     } catch (e: any) {
       setError(e.message);
@@ -1016,6 +1033,7 @@ export default function Root() {
         id: "places-circles",
         type: "circle",
         source: "places",
+        // No initial filter - will be set by applyPlaceCategoryFilter after categories are initialized
         paint: {
           "circle-radius": [
             "interpolate",
@@ -1032,10 +1050,49 @@ export default function Root() {
           "circle-opacity": 0.85,
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 0.5,
+          "circle-pitch-alignment": "map",
+          "circle-pitch-scale": "map",
         },
       });
     } else {
       (map.getSource("places") as mapboxgl.GeoJSONSource).setData(fc);
+    }
+  }
+
+  function applyPlaceCategoryFilter() {
+    const map = mapRef.current;
+    if (map && map.getLayer("places-circles") && reportData && reportData.categoryBreakdown) {
+      // Convert selected categories to actual category filters
+      let categoriesToShow: string[] = [];
+      
+      // Sort categories by count and determine top 10 vs "others"
+      const sortedCategories = Object.entries(reportData.categoryBreakdown)
+        .filter(([_, count]) => count > 0)
+        .sort(([, a], [, b]) => b - a);
+
+      const TOP_CATEGORIES_COUNT = 10;
+      const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
+      const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
+
+      selectedPlaceCategories.forEach(selectedCategory => {
+        if (selectedCategory === 'others') {
+          // Include all categories that are in the "others" group
+          otherCategories.forEach(([category]) => {
+            categoriesToShow.push(category.toLowerCase());
+          });
+        } else {
+          // Include the specific category
+          categoriesToShow.push(selectedCategory.toLowerCase());
+        }
+      });
+
+      // Update the filter on the existing places layer
+      if (categoriesToShow.length > 0) {
+        map.setFilter("places-circles", ["in", ["downcase", ["get", "category"]], ["literal", categoriesToShow]]);
+      } else {
+        // Show no places if no categories selected
+        map.setFilter("places-circles", ["==", ["get", "category"], ""]);
+      }
     }
   }
 
@@ -1440,7 +1497,64 @@ export default function Root() {
               )}
               
               {/* Toggle for showing/hiding segments */}
-              <div style={{ marginTop: "12px" }}>
+              <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                <label style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  color: ginkgoTheme.colors.primary.navy
+                }}>
+                  <input 
+                    type="checkbox"
+                    checked={showPlaces}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setShowPlaces(checked);
+                      const map = mapRef.current;
+                      if (map && map.getLayer("places-circles")) {
+                        map.setLayoutProperty("places-circles", "visibility", checked ? "visible" : "none");
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Show places
+                </label>
+                
+                <label style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  color: ginkgoTheme.colors.primary.navy
+                }}>
+                  <input 
+                    type="checkbox"
+                    checked={showBuildings}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setShowBuildings(checked);
+                      const map = mapRef.current;
+                      if (map) {
+                        // Toggle buildings layers visibility
+                        if (map.getLayer("buildings-fill")) {
+                          map.setLayoutProperty("buildings-fill", "visibility", checked ? "visible" : "none");
+                        }
+                        if (map.getLayer("buildings-outline")) {
+                          map.setLayoutProperty("buildings-outline", "visibility", checked ? "visible" : "none");
+                        }
+                        if (map.getLayer("buildings-labels")) {
+                          map.setLayoutProperty("buildings-labels", "visibility", checked ? "visible" : "none");
+                        }
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  />
+                  Show buildings
+                </label>
+                
                 <label style={{ 
                   display: "flex", 
                   alignItems: "center", 
@@ -1520,6 +1634,9 @@ export default function Root() {
           buildingsMetrics={buildingsMetrics}
           showBuildings={showBuildings}
           setShowBuildings={setShowBuildings}
+          selectedPlaceCategories={selectedPlaceCategories}
+          setSelectedPlaceCategories={setSelectedPlaceCategories}
+          onApplyPlaceFilters={applyPlaceCategoryFilter}
         />
       )}
     </div>

@@ -51,14 +51,8 @@ export async function handler(event) {
       };
     }
 
-    // Debug: Log API key format (first/last 5 chars only for security)
+    // Validate API key format
     const apiKey = process.env.SENDGRID_API_KEY;
-    console.log('API Key format check:', {
-      hasKey: !!apiKey,
-      keyLength: apiKey?.length,
-      startsWithSG: apiKey?.startsWith('SG.'),
-      keyPreview: apiKey ? `${apiKey.substring(0, 5)}...${apiKey.substring(apiKey.length - 5)}` : 'none'
-    });
 
     // Set SendGrid API key
     sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -279,7 +273,7 @@ Report generated on ${new Date().toLocaleDateString('en-US', {
     };
 
   } catch (error) {
-    console.error('SendGrid email error:', error);
+    // SendGrid email error occurred
     
     // Handle SendGrid specific errors
     if (error.code === 401) {

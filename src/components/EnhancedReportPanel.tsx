@@ -45,6 +45,10 @@ interface EnhancedReportPanelProps {
   buildingsMetrics?: any;
   showBuildings?: boolean;
   setShowBuildings?: (show: boolean) => void;
+  // Places category filtering props
+  selectedPlaceCategories?: string[];
+  setSelectedPlaceCategories?: (categories: string[]) => void;
+  onApplyPlaceFilters?: () => void;
 }
 
 export function EnhancedReportPanel({
@@ -63,6 +67,9 @@ export function EnhancedReportPanel({
   buildingsMetrics = null,
   showBuildings = true,
   setShowBuildings = () => {},
+  selectedPlaceCategories = [],
+  setSelectedPlaceCategories = () => {},
+  onApplyPlaceFilters = () => {},
 }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<
@@ -176,7 +183,7 @@ export function EnhancedReportPanel({
         throw new Error(error.message || "Failed to send email");
       }
     } catch (error) {
-      console.error("Error sharing report:", error);
+      // Error sharing report
       alert("Failed to send report. Please try again.");
     } finally {
       setShareLoading(false);
@@ -400,6 +407,9 @@ export function EnhancedReportPanel({
             placeTypology={placeTypology}
             serviceDemands={serviceDemands}
             params={params}
+            selectedPlaceCategories={selectedPlaceCategories}
+            setSelectedPlaceCategories={setSelectedPlaceCategories}
+            onApplyPlaceFilters={onApplyPlaceFilters}
           />
         )}
 
@@ -700,6 +710,9 @@ function ExecutiveSummary({
   placeTypology,
   serviceDemands,
   params,
+  selectedPlaceCategories,
+  setSelectedPlaceCategories,
+  onApplyPlaceFilters,
 }: any) {
   const getTypologyColor = (typology: string) => {
     const colors: Record<string, string> = {
@@ -716,6 +729,174 @@ function ExecutiveSummary({
 
   return (
     <div>
+      {/* Category Filters Section */}
+      <div style={{ 
+        background: ginkgoTheme.colors.background.light,
+        padding: "1.5rem",
+        borderRadius: "8px",
+        marginBottom: "2rem"
+      }}>
+        <h3 style={{ 
+          fontSize: "1.2rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          marginBottom: "1rem" 
+        }}>
+          Filter Place Categories
+        </h3>
+        
+        {/* Available place categories */}
+        {data.categoryBreakdown && Object.keys(data.categoryBreakdown).length > 0 && (
+          <>
+            {/* Select All/None buttons */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "1rem" }}>
+              <button
+                onClick={() => {
+                  // Select all categories including "others" if it exists
+                  const sortedCategories = Object.entries(data.categoryBreakdown)
+                    .filter(([_, count]) => count > 0)
+                    .sort(([, a], [, b]) => b - a);
+                  
+                  const TOP_CATEGORIES_COUNT = 10;
+                  const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
+                  const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
+                  
+                  const allCategories = topCategories.map(([category]) => category);
+                  if (otherCategories.length > 0) {
+                    allCategories.push('others');
+                  }
+                  
+                  setSelectedPlaceCategories(allCategories);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  background: ginkgoTheme.colors.primary.green,
+                  color: ginkgoTheme.colors.primary.navy,
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 500
+                }}
+              >
+                Select All
+              </button>
+              <button
+                onClick={() => setSelectedPlaceCategories([])}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  background: ginkgoTheme.colors.text.light,
+                  color: "white",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 500
+                }}
+              >
+                Select None
+              </button>
+            </div>
+
+            {/* Category checkboxes - grouped like pie chart */}
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", 
+              gap: "0.5rem",
+              marginBottom: "1rem"
+            }}>
+              {(() => {
+                // Sort categories by count and show top 10, group rest as "Others"
+                const sortedCategories = Object.entries(data.categoryBreakdown)
+                  .filter(([_, count]) => count > 0)
+                  .sort(([, a], [, b]) => b - a); // Sort by count descending
+
+                const TOP_CATEGORIES_COUNT = 10;
+                const topCategories = sortedCategories.slice(0, TOP_CATEGORIES_COUNT);
+                const otherCategories = sortedCategories.slice(TOP_CATEGORIES_COUNT);
+
+                const displayCategories = [];
+
+                // Add top categories
+                topCategories.forEach(([category, count]) => {
+                  displayCategories.push({ category, count, isOther: false });
+                });
+
+                // Group remaining categories as "Others" if there are any
+                if (otherCategories.length > 0) {
+                  const otherCount = otherCategories.reduce((sum, [_, count]) => sum + count, 0);
+                  displayCategories.push({ category: 'others', count: otherCount, isOther: true, otherCategories });
+                }
+
+                return displayCategories.map(({ category, count, isOther, otherCategories }) => {
+                  const displayName = isOther ? 'Others' : category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                  const categoryKey = isOther ? 'others' : category;
+                  
+                  return (
+                    <label
+                      key={categoryKey}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        cursor: "pointer",
+                        fontSize: "14px"
+                      }}
+                      title={isOther ? `Includes: ${otherCategories.map(([cat]) => cat.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')).slice(0, 5).join(', ')}${otherCategories.length > 5 ? '...' : ''}` : ''}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPlaceCategories.includes(categoryKey)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPlaceCategories([...selectedPlaceCategories, categoryKey]);
+                          } else {
+                            setSelectedPlaceCategories(selectedPlaceCategories.filter(c => c !== categoryKey));
+                          }
+                        }}
+                        style={{ marginRight: "4px" }}
+                      />
+                      <div
+                        style={{
+                          width: "12px",
+                          height: "12px",
+                          borderRadius: "50%",
+                          backgroundColor: getCategoryColor(categoryKey),
+                          marginRight: "4px"
+                        }}
+                      />
+                      <span style={{ 
+                        color: ginkgoTheme.colors.primary.navy
+                      }}>
+                        {displayName} ({count})
+                      </span>
+                    </label>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Apply Filters button */}
+            <button
+              onClick={onApplyPlaceFilters}
+              style={{
+                padding: "10px 20px",
+                fontSize: "14px",
+                background: ginkgoTheme.colors.primary.orange,
+                color: ginkgoTheme.colors.primary.navy,
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: 600,
+                transition: "all 0.2s ease"
+              }}
+            >
+              Apply Filters ({selectedPlaceCategories.length} selected)
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Key Metrics Grid */}
       <div
         style={{
@@ -2683,9 +2864,6 @@ function BuildingsAnalytics({
     <div style={{ padding: "1rem" }}>
       {/* Header */}
       <div style={{ 
-        display: "flex", 
-        justifyContent: "space-between", 
-        alignItems: "center", 
         marginBottom: "1.5rem" 
       }}>
         <h2 style={{ 
@@ -2696,24 +2874,6 @@ function BuildingsAnalytics({
         }}>
           Building Footprint Analysis
         </h2>
-        
-        {/* Visibility Toggle */}
-        <button
-          onClick={() => setShowBuildings(!showBuildings)}
-          style={{
-            padding: "8px 16px",
-            fontSize: "14px",
-            background: showBuildings ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.text.light,
-            color: showBuildings ? ginkgoTheme.colors.primary.navy : "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontWeight: 600,
-            transition: "all 0.2s ease"
-          }}
-        >
-          {showBuildings ? "Hide Buildings" : "Show Buildings"}
-        </button>
       </div>
 
       {/* Core Building Metrics */}

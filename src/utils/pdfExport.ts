@@ -19,7 +19,7 @@ function generateStaticMapURL(
   places?: any[]
 ): string {
   if (!polygon || !polygon.features || !polygon.features.length) {
-    console.error("No polygon data provided for map generation");
+    // No polygon data provided for map generation
     return "";
   }
 
