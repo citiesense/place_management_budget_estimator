@@ -335,14 +335,68 @@ export default function Root() {
     };
   }, []);
 
+  // Simple client-side deduplication for parallel roads
+  function performClientSideDeduplication(segments: any[]): any[] {
+    console.log("Applying client-side deduplication to", segments.length, "segments");
+    
+    const deduplicatedSegments: any[] = [];
+    const processed = new Set<string>();
+    
+    for (const segment of segments) {
+      if (processed.has(segment.segment_id)) continue;
+      
+      // Find potential parallel segments
+      const parallelSegments = segments.filter(other => 
+        other.segment_id !== segment.segment_id &&
+        other.class === segment.class &&
+        other.name === segment.name &&
+        !processed.has(other.segment_id) &&
+        // Simple distance check - segments with same name and class within reasonable distance
+        Math.abs(other.length_meters - segment.length_meters) < segment.length_meters * 0.5
+      );
+      
+      if (parallelSegments.length > 0) {
+        // Create merged segment
+        const mergedSegment = {
+          ...segment,
+          merged_count: parallelSegments.length + 1,
+          dedup_status: 'deduplicated',
+          length_meters: segment.length_meters, // Keep representative length
+          original_segments: [segment.segment_id, ...parallelSegments.map(s => s.segment_id)]
+        };
+        
+        deduplicatedSegments.push(mergedSegment);
+        
+        // Mark all as processed
+        processed.add(segment.segment_id);
+        parallelSegments.forEach(s => processed.add(s.segment_id));
+        
+        console.log(`Merged ${parallelSegments.length + 1} segments for ${segment.name} (${segment.class})`);
+      } else {
+        // Keep original segment
+        deduplicatedSegments.push({
+          ...segment,
+          merged_count: 1,
+          dedup_status: 'original'
+        });
+        processed.add(segment.segment_id);
+      }
+    }
+    
+    console.log(`Deduplication result: ${segments.length} → ${deduplicatedSegments.length} segments`);
+    return deduplicatedSegments;
+  }
+
   async function fetchSegments() {
     if (!polygon) return;
     try {
       // Use dedup view if deduplication is enabled
       const baseTable = import.meta.env.VITE_SEGMENTS_TABLE || "ginkgo-map-data.overture_na.segment_view";
-      const segmentsTable = useDeduplication 
-        ? baseTable.replace("segment_view", "segment_view_dedup_simple")
-        : baseTable;
+      // TODO: Enable when Phase 3 database views are created
+      // const segmentsTable = useDeduplication 
+      //   ? baseTable.replace("segment_view", "segment_view_dedup_simple")
+      //   : baseTable;
+      const segmentsTable = baseTable; // Use regular table for now
       
       
       // Query to get road segments within polygon
@@ -470,15 +524,69 @@ export default function Root() {
         const totalLengthM = firstFeature?.total_length_m || 0;
         const totalLengthMiles = firstFeature?.total_length_miles || 0;
         
+        // Create segments array from features for RoadsAnalytics component
+        let segmentsArray = fc.features.map((feature: any) => ({
+          segment_id: feature.properties.segment_id,
+          name: feature.properties.name,
+          class: feature.properties.class,
+          subclass: feature.properties.subclass,
+          length_meters: feature.properties.length_meters,
+          merged_count: feature.properties.merged_count || 1,
+          dedup_status: feature.properties.dedup_status || 'original',
+          geometry: feature.geometry,
+          ...feature.properties
+        }));
+
+        // Apply client-side deduplication if enabled
+        if (useDeduplication) {
+          segmentsArray = performClientSideDeduplication(segmentsArray);
+        }
+
+        // Recalculate metrics based on potentially deduplicated segments
+        const actualTotal = segmentsArray.length;
+        const actualTotalLengthM = segmentsArray.reduce((sum, seg) => sum + seg.length_meters, 0);
+        const actualTotalLengthMiles = actualTotalLengthM / 1609.34;
+        const actualTotalLengthFt = actualTotalLengthM * 3.28084;
+
+        // Recalculate class breakdowns with deduplicated data
+        const actualClassMetrics = new Map();
+        segmentsArray.forEach((segment: any) => {
+          const className = segment.class;
+          if (className) {
+            if (!actualClassMetrics.has(className)) {
+              actualClassMetrics.set(className, {
+                class: className,
+                count: 0,
+                lengthM: 0,
+                lengthMiles: 0,
+                lengthFt: 0,
+                color: ROAD_CLASS_OPTIONS.find(opt => opt.value === className)?.color || '#999999'
+              });
+            }
+            const metrics = actualClassMetrics.get(className);
+            metrics.count += 1;
+            metrics.lengthM += segment.length_meters;
+            metrics.lengthMiles += segment.length_meters / 1609.34;
+            metrics.lengthFt += segment.length_meters * 3.28084;
+          }
+        });
+
         const enhancedSegmentsData = {
-          total: totalSegments,
-          totalLengthM: totalLengthM,
-          totalLengthMiles: totalLengthMiles,
-          totalLengthFt: firstFeature?.total_length_ft || 0,
-          classByClass: Array.from(classMetrics.values()),
+          // Metrics data (using actual deduplicated values)
+          total: actualTotal,
+          totalLengthM: actualTotalLengthM,
+          totalLengthMiles: actualTotalLengthMiles,
+          totalLengthFt: actualTotalLengthFt,
+          classByClass: Array.from(actualClassMetrics.values()),
           // Calculate density (using estimated area if not available from places)
-          densityPerKm2: reportData?.areaKm2 ? totalLengthM / (reportData.areaKm2 * 1000) : 0,
-          densityPerMile2: reportData?.areaKm2 ? (totalLengthMiles * 5280) / (reportData.areaKm2 * 0.386102) : 0,
+          densityPerKm2: reportData?.areaKm2 ? actualTotalLengthM / (reportData.areaKm2 * 1000) : 0,
+          densityPerMile2: reportData?.areaKm2 ? (actualTotalLengthMiles * 5280) / (reportData.areaKm2 * 0.386102) : 0,
+          // Deduplication metadata
+          deduplication_enabled: useDeduplication,
+          original_total: totalSegments,
+          segments_removed: useDeduplication ? totalSegments - actualTotal : 0,
+          // Raw segments array for RoadsAnalytics component
+          segments: segmentsArray
         };
         
         console.log("Enhanced segments data:", enhancedSegmentsData);
@@ -493,7 +601,11 @@ export default function Root() {
         } else {
           console.log("Creating new reportData with segments");
           setReportData({
-            segments: enhancedSegmentsData
+            segments: enhancedSegmentsData,
+            // Add default values required by budget calculations
+            totalPlaces: 0,
+            areaAcres: 0,
+            categoryBreakdown: {}
           });
         }
       }

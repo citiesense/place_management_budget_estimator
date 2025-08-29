@@ -70,20 +70,20 @@ export function EnhancedReportPanel({
   // Calculate budget with current parameters
   const budget = calculateBudget(
     params,
-    data.totalPlaces,
-    data.areaAcres,
-    data.perimeterFt || data.areaAcres * 1320, // Estimate if not provided
-    data.categoryBreakdown
+    data.totalPlaces || 0,
+    data.areaAcres || 0,
+    data.perimeterFt || (data.areaAcres || 0) * 1320, // Estimate if not provided
+    data.categoryBreakdown || {}
   );
 
   const placeTypology = determinePlaceTypology(
-    data.categoryBreakdown,
-    data.totalPlaces
+    data.categoryBreakdown || {},
+    data.totalPlaces || 0
   );
   const serviceDemands = getServiceDemandIndicators(
-    data.totalPlaces,
-    data.areaAcres,
-    data.categoryBreakdown,
+    data.totalPlaces || 0,
+    data.areaAcres || 0,
+    data.categoryBreakdown || {},
     budget.cleanIntensity,
     budget.nightIntensity
   );
@@ -2584,7 +2584,7 @@ function RoadsAnalytics({
           </div>
           
           {/* Deduplication Info Section */}
-          {(useDeduplication || data.segments?.some(s => s.dedup_status && s.dedup_status !== 'original')) && (
+          {(useDeduplication || data.segments?.segments?.some(s => s.dedup_status && s.dedup_status !== 'original')) && (
             <div style={{
               marginTop: "2rem",
               padding: "1.5rem",
@@ -2618,7 +2618,7 @@ function RoadsAnalytics({
                   </p>
                   
                   {/* Show merged segments count if available */}
-                  {data.segments?.some(s => s.merged_count > 1) && (
+                  {data.segments?.segments?.some(s => s.merged_count > 1) && (
                     <div style={{
                       background: "rgba(15, 234, 166, 0.1)",
                       padding: "12px",
@@ -2637,8 +2637,11 @@ function RoadsAnalytics({
                         color: ginkgoTheme.colors.text.secondary,
                         marginTop: "4px"
                       }}>
-                        {data.segments?.filter(s => s.merged_count > 1).length} boulevard pairs merged • 
-                        {data.segments?.reduce((sum, s) => sum + (s.merged_count > 1 ? s.merged_count - 1 : 0), 0)} duplicate segments removed
+                        {data.segments?.segments?.filter(s => s.merged_count > 1).length || 0} boulevard pairs merged • 
+                        {data.segments?.segments?.reduce((sum, s) => sum + (s.merged_count > 1 ? s.merged_count - 1 : 0), 0) || 0} duplicate segments removed
+                        {data.segments?.segments_removed > 0 && (
+                          <span> • {data.segments.original_total} → {data.segments.total} total segments</span>
+                        )}
                       </div>
                     </div>
                   )}
