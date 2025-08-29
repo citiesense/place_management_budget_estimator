@@ -41,8 +41,6 @@ interface EnhancedReportPanelProps {
   useMetricUnits?: boolean;
   setUseMetricUnits?: (metric: boolean) => void;
   segmentsGeoJSON?: any; // Raw GeoJSON FeatureCollection for export
-  useDeduplication?: boolean;
-  setUseDeduplication?: (dedup: boolean) => void;
 }
 
 export function EnhancedReportPanel({
@@ -58,8 +56,6 @@ export function EnhancedReportPanel({
   useMetricUnits = true,
   setUseMetricUnits = () => {},
   segmentsGeoJSON = null,
-  useDeduplication = false,
-  setUseDeduplication = () => {},
 }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<
@@ -425,8 +421,6 @@ export function EnhancedReportPanel({
             useMetricUnits={useMetricUnits}
             setUseMetricUnits={setUseMetricUnits}
             segmentsGeoJSON={segmentsGeoJSON}
-            useDeduplication={useDeduplication}
-            setUseDeduplication={setUseDeduplication}
           />
         )}
       </div>
@@ -2173,10 +2167,10 @@ function exportRoadData(segmentsData: any, segmentsGeoJSON: any, selectedRoadCla
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
-    console.log("Successfully exported GeoJSON:", filename);
+    // GeoJSON export completed successfully
     
   } catch (error) {
-    console.error("Export failed:", error);
+    // Export failed silently
     alert("Export failed. Please try again.");
   }
 }
@@ -2189,9 +2183,7 @@ function RoadsAnalytics({
   onApplyRoadFilters, 
   useMetricUnits, 
   setUseMetricUnits,
-  segmentsGeoJSON,
-  useDeduplication,
-  setUseDeduplication
+  segmentsGeoJSON
 }: {
   data: any;
   selectedRoadClasses: string[];
@@ -2200,8 +2192,6 @@ function RoadsAnalytics({
   useMetricUnits: boolean;
   setUseMetricUnits: (metric: boolean) => void;
   segmentsGeoJSON: any;
-  useDeduplication: boolean;
-  setUseDeduplication: (dedup: boolean) => void;
 }) {
   return (
     <div style={{ padding: "1rem" }}>
@@ -2223,31 +2213,6 @@ function RoadsAnalytics({
         
         {/* Toggle Controls */}
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          {/* Deduplication Toggle */}
-          <button
-            onClick={() => {
-              setUseDeduplication(!useDeduplication);
-              // Auto-apply filters when deduplication changes
-              setTimeout(() => onApplyRoadFilters(), 100);
-            }}
-            style={{
-              padding: "8px 12px",
-              fontSize: "14px",
-              background: useDeduplication ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.secondary.lightGray,
-              color: useDeduplication ? ginkgoTheme.colors.primary.navy : ginkgoTheme.colors.text.secondary,
-              border: "none",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: 600,
-              transition: "all 0.2s ease",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px"
-            }}
-          >
-            <span style={{ fontSize: "12px" }}>{useDeduplication ? "🔀" : "📏"}</span>
-            {useDeduplication ? "Deduplicated" : "Raw Data"}
-          </button>
           
           {/* Unit Toggle */}
           <button
@@ -2582,98 +2547,6 @@ function RoadsAnalytics({
               }
             </div>
           </div>
-          
-          {/* Deduplication Info Section */}
-          {(useDeduplication || data.segments?.segments?.some(s => s.dedup_status && s.dedup_status !== 'original')) && (
-            <div style={{
-              marginTop: "2rem",
-              padding: "1.5rem",
-              background: "linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)",
-              borderRadius: "8px",
-              borderLeft: `4px solid ${ginkgoTheme.colors.primary.green}`,
-              border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`
-            }}>
-              <h4 style={{ 
-                fontSize: "1rem", 
-                fontWeight: 600, 
-                color: ginkgoTheme.colors.primary.navy,
-                marginBottom: "1rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px"
-              }}>
-                <span style={{ fontSize: "16px" }}>🔀</span>
-                Boulevard Deduplication {useDeduplication ? "Active" : "Available"}
-              </h4>
-              
-              {useDeduplication ? (
-                <div>
-                  <p style={{
-                    fontSize: "14px",
-                    color: ginkgoTheme.colors.text.secondary,
-                    marginBottom: "1rem",
-                    lineHeight: "1.4"
-                  }}>
-                    <strong>Deduplication Active:</strong> Parallel road segments (like divided highways and boulevards) have been merged to avoid double-counting infrastructure maintenance costs. This provides more accurate BID budget estimates.
-                  </p>
-                  
-                  {/* Show merged segments count if available */}
-                  {data.segments?.segments?.some(s => s.merged_count > 1) && (
-                    <div style={{
-                      background: "rgba(15, 234, 166, 0.1)",
-                      padding: "12px",
-                      borderRadius: "6px",
-                      marginTop: "1rem"
-                    }}>
-                      <div style={{
-                        fontSize: "14px",
-                        color: ginkgoTheme.colors.primary.navy,
-                        fontWeight: 600
-                      }}>
-                        Deduplication Results:
-                      </div>
-                      <div style={{
-                        fontSize: "13px",
-                        color: ginkgoTheme.colors.text.secondary,
-                        marginTop: "4px"
-                      }}>
-                        {data.segments?.segments?.filter(s => s.merged_count > 1).length || 0} boulevard pairs merged • 
-                        {data.segments?.segments?.reduce((sum, s) => sum + (s.merged_count > 1 ? s.merged_count - 1 : 0), 0) || 0} duplicate segments removed
-                        {data.segments?.segments_removed > 0 && (
-                          <span> • {data.segments.original_total} → {data.segments.total} total segments</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <p style={{
-                    fontSize: "14px",
-                    color: ginkgoTheme.colors.text.secondary,
-                    marginBottom: "1rem",
-                    lineHeight: "1.4"
-                  }}>
-                    <strong>Raw Data View:</strong> Showing all road segments individually. Parallel roads (like divided highways) are counted separately. Enable deduplication above for more accurate budget calculations.
-                  </p>
-                  
-                  <div style={{
-                    background: "rgba(243, 113, 41, 0.1)",
-                    padding: "12px",
-                    borderRadius: "6px",
-                    marginTop: "1rem"
-                  }}>
-                    <div style={{
-                      fontSize: "13px",
-                      color: ginkgoTheme.colors.text.secondary
-                    }}>
-                      💡 <strong>Tip:</strong> Enable "Deduplicated" mode above to group boulevard pairs and avoid overestimating maintenance costs for divided roads.
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
           
           {/* Export Section */}
           <div style={{

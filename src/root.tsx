@@ -13,6 +13,14 @@ import {
 } from "./components/GinkgoStyledPanel";
 import { ginkgoTheme } from "./styles/ginkgoTheme";
 import { CATEGORY_COLORS } from "./constants/categoryColors";
+import { 
+  addSmartSegmentsLayers, 
+  removeAllSegmentLayers, 
+  toggleSegmentLayerVisibility,
+  addSegmentInteractions,
+  logPerformanceMetrics,
+  testMVTEndpoint
+} from "./utils/mvtIntegration";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string;
 const MAPBOX_STYLE = import.meta.env.VITE_MAPBOX_STYLE as string; // e.g. mapbox://styles/citiesense/ckc6fzel218uv1jrj6qsnsbw2
@@ -51,7 +59,9 @@ export default function Root() {
   ]);
   const [useMetricUnits, setUseMetricUnits] = useState(true);
   const [segmentsGeoJSON, setSegmentsGeoJSON] = useState<any>(null);
-  const [useDeduplication, setUseDeduplication] = useState(false);
+  const [useMVTTiles, setUseMVTTiles] = useState(false);
+  const [currentLayerType, setCurrentLayerType] = useState<'mvt' | 'geojson' | 'none'>('none');
+  const [mvtEndpointAvailable, setMvtEndpointAvailable] = useState(false);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -64,6 +74,11 @@ export default function Root() {
     });
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     mapRef.current = map;
+
+    // Test MVT endpoint availability on startup
+    testMVTEndpoint().then(available => {
+      setMvtEndpointAvailable(available);
+    });
 
     // Enhanced polygon drawing with better UX
     let pts: mapboxgl.LngLat[] = [];
@@ -336,66 +351,12 @@ export default function Root() {
   }, []);
 
   // Simple client-side deduplication for parallel roads
-  function performClientSideDeduplication(segments: any[]): any[] {
-    console.log("Applying client-side deduplication to", segments.length, "segments");
-    
-    const deduplicatedSegments: any[] = [];
-    const processed = new Set<string>();
-    
-    for (const segment of segments) {
-      if (processed.has(segment.segment_id)) continue;
-      
-      // Find potential parallel segments
-      const parallelSegments = segments.filter(other => 
-        other.segment_id !== segment.segment_id &&
-        other.class === segment.class &&
-        other.name === segment.name &&
-        !processed.has(other.segment_id) &&
-        // Simple distance check - segments with same name and class within reasonable distance
-        Math.abs(other.length_meters - segment.length_meters) < segment.length_meters * 0.5
-      );
-      
-      if (parallelSegments.length > 0) {
-        // Create merged segment
-        const mergedSegment = {
-          ...segment,
-          merged_count: parallelSegments.length + 1,
-          dedup_status: 'deduplicated',
-          length_meters: segment.length_meters, // Keep representative length
-          original_segments: [segment.segment_id, ...parallelSegments.map(s => s.segment_id)]
-        };
-        
-        deduplicatedSegments.push(mergedSegment);
-        
-        // Mark all as processed
-        processed.add(segment.segment_id);
-        parallelSegments.forEach(s => processed.add(s.segment_id));
-        
-        console.log(`Merged ${parallelSegments.length + 1} segments for ${segment.name} (${segment.class})`);
-      } else {
-        // Keep original segment
-        deduplicatedSegments.push({
-          ...segment,
-          merged_count: 1,
-          dedup_status: 'original'
-        });
-        processed.add(segment.segment_id);
-      }
-    }
-    
-    console.log(`Deduplication result: ${segments.length} → ${deduplicatedSegments.length} segments`);
-    return deduplicatedSegments;
-  }
 
   async function fetchSegments() {
     if (!polygon) return;
     try {
       // Use dedup view if deduplication is enabled
       const baseTable = import.meta.env.VITE_SEGMENTS_TABLE || "ginkgo-map-data.overture_na.segment_view";
-      // TODO: Enable when Phase 3 database views are created
-      // const segmentsTable = useDeduplication 
-      //   ? baseTable.replace("segment_view", "segment_view_dedup_simple")
-      //   : baseTable;
       const segmentsTable = baseTable; // Use regular table for now
       
       
@@ -500,9 +461,7 @@ export default function Root() {
       
       // Process enhanced metrics data if we have segments
       if (fc.features.length > 0) {
-        console.log("Processing segments data for metrics...");
         const firstFeature = fc.features[0].properties;
-        console.log("First feature properties:", firstFeature);
         
         // Build detailed class breakdowns from all segments
         const classMetrics = new Map();
@@ -537,10 +496,6 @@ export default function Root() {
           ...feature.properties
         }));
 
-        // Apply client-side deduplication if enabled
-        if (useDeduplication) {
-          segmentsArray = performClientSideDeduplication(segmentsArray);
-        }
 
         // Recalculate metrics based on potentially deduplicated segments
         const actualTotal = segmentsArray.length;
@@ -581,25 +536,18 @@ export default function Root() {
           // Calculate density (using estimated area if not available from places)
           densityPerKm2: reportData?.areaKm2 ? actualTotalLengthM / (reportData.areaKm2 * 1000) : 0,
           densityPerMile2: reportData?.areaKm2 ? (actualTotalLengthMiles * 5280) / (reportData.areaKm2 * 0.386102) : 0,
-          // Deduplication metadata
-          deduplication_enabled: useDeduplication,
-          original_total: totalSegments,
-          segments_removed: useDeduplication ? totalSegments - actualTotal : 0,
           // Raw segments array for RoadsAnalytics component
           segments: segmentsArray
         };
         
-        console.log("Enhanced segments data:", enhancedSegmentsData);
         
         // Update report data with enhanced segments metrics
         if (reportData) {
-          console.log("Updating existing reportData with segments");
           setReportData({
             ...reportData,
             segments: enhancedSegmentsData
           });
         } else {
-          console.log("Creating new reportData with segments");
           setReportData({
             segments: enhancedSegmentsData,
             // Add default values required by budget calculations
@@ -610,9 +558,27 @@ export default function Root() {
         }
       }
       
-      addSegmentsLayer(fc);
+      // Use smart layer selection (MVT vs GeoJSON)
+      const startTime = Date.now();
+      const map = mapRef.current!;
+      const layerType = addSmartSegmentsLayers(
+        map,
+        fc,
+        totalSegments,
+        selectedRoadClasses,
+        showSegments
+      );
+      const loadTime = Date.now() - startTime;
+      
+      setCurrentLayerType(layerType);
+      logPerformanceMetrics(layerType, totalSegments, loadTime);
+      
+      // Add interaction handlers if layer was created
+      if (layerType !== 'none') {
+        addSegmentInteractions(mapRef.current!, layerType);
+      }
     } catch (e: any) {
-      console.error("Error fetching segments:", e);
+      // Handle error silently in production
       setError(e.message);
     }
   }
@@ -896,16 +862,8 @@ export default function Root() {
       map.removeSource("places");
     }
     
-    // Clear segments results
-    if (map.getSource("segments")) {
-      // Remove event listeners first
-      map.off("mouseenter", "segments-lines");
-      map.off("mouseleave", "segments-lines");
-      map.off("click", "segments-lines");
-      // Then remove layer and source
-      map.removeLayer("segments-lines");
-      map.removeSource("segments");
-    }
+    // Clear all segment layers (both MVT and GeoJSON)
+    removeAllSegmentLayers(map);
 
     // Clear drawing layers
     if (map.getSource("drawing-poly")) {
@@ -932,6 +890,7 @@ export default function Root() {
     setSegmentsData(null);
     setSegmentCount(null);
     setSelectedRoadClasses(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified']);
+    setCurrentLayerType('none');
     setError(null);
     setReportData(null);
     setShowReport(false);
@@ -1174,12 +1133,24 @@ export default function Root() {
                 </GinkgoText>
               )}
               {segmentCount !== null && (
-                <GinkgoText style={{ marginTop: "8px" }}>
-                  <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
-                    {segmentCount.toLocaleString()}
-                  </strong>{" "}
-                  road segments found
-                </GinkgoText>
+                <div style={{ marginTop: "8px" }}>
+                  <GinkgoText>
+                    <strong style={{ color: ginkgoTheme.colors.primary.navy }}>
+                      {segmentCount.toLocaleString()}
+                    </strong>{" "}
+                    road segments found
+                  </GinkgoText>
+                  {currentLayerType !== 'none' && (
+                    <GinkgoText style={{ 
+                      fontSize: "11px", 
+                      color: ginkgoTheme.colors.text.light,
+                      marginTop: "2px"
+                    }}>
+                      Rendered with {currentLayerType === 'mvt' ? 'vector tiles' : 'GeoJSON'}
+                      {currentLayerType === 'mvt' && ' ⚡'}
+                    </GinkgoText>
+                  )}
+                </div>
               )}
               
               {/* Toggle for showing/hiding segments */}
@@ -1196,14 +1167,11 @@ export default function Root() {
                     type="checkbox"
                     checked={showSegments}
                     onChange={(e) => {
-                      setShowSegments(e.target.checked);
+                      const checked = e.target.checked;
+                      setShowSegments(checked);
                       const map = mapRef.current;
-                      if (map && map.getLayer("segments-lines")) {
-                        map.setLayoutProperty(
-                          "segments-lines", 
-                          "visibility", 
-                          e.target.checked ? "visible" : "none"
-                        );
+                      if (map && currentLayerType !== 'none') {
+                        toggleSegmentLayerVisibility(map, checked, currentLayerType);
                       }
                     }}
                     style={{ cursor: "pointer" }}
@@ -1263,8 +1231,6 @@ export default function Root() {
           useMetricUnits={useMetricUnits}
           setUseMetricUnits={setUseMetricUnits}
           segmentsGeoJSON={segmentsGeoJSON}
-          useDeduplication={useDeduplication}
-          setUseDeduplication={setUseDeduplication}
         />
       )}
     </div>
