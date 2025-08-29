@@ -41,6 +41,10 @@ interface EnhancedReportPanelProps {
   useMetricUnits?: boolean;
   setUseMetricUnits?: (metric: boolean) => void;
   segmentsGeoJSON?: any; // Raw GeoJSON FeatureCollection for export
+  // Buildings props
+  buildingsMetrics?: any;
+  showBuildings?: boolean;
+  setShowBuildings?: (show: boolean) => void;
 }
 
 export function EnhancedReportPanel({
@@ -56,10 +60,13 @@ export function EnhancedReportPanel({
   useMetricUnits = true,
   setUseMetricUnits = () => {},
   segmentsGeoJSON = null,
+  buildingsMetrics = null,
+  showBuildings = true,
+  setShowBuildings = () => {},
 }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<
-    "executive" | "details" | "parameters" | "roads"
+    "executive" | "details" | "parameters" | "roads" | "buildings"
   >("executive");
   const [showFullReport, setShowFullReport] = useState(!mapVisible);
 
@@ -352,7 +359,7 @@ export function EnhancedReportPanel({
           backgroundColor: ginkgoTheme.colors.background.main,
         }}
       >
-        {["executive", "details", "parameters", ...(data.segments ? ["roads"] : [])].map((tab) => (
+        {["executive", "details", "parameters", ...(data.segments ? ["roads"] : []), ...(buildingsMetrics ? ["buildings"] : [])].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -379,6 +386,7 @@ export function EnhancedReportPanel({
             {tab === "details" && "Service Details"}
             {tab === "parameters" && "Budget Parameters"}
             {tab === "roads" && "Road Analytics"}
+            {tab === "buildings" && "Building Analytics"}
           </button>
         ))}
       </div>
@@ -421,6 +429,15 @@ export function EnhancedReportPanel({
             useMetricUnits={useMetricUnits}
             setUseMetricUnits={setUseMetricUnits}
             segmentsGeoJSON={segmentsGeoJSON}
+          />
+        )}
+
+        {activeTab === "buildings" && buildingsMetrics && (
+          <BuildingsAnalytics
+            buildingsMetrics={buildingsMetrics}
+            showBuildings={showBuildings}
+            setShowBuildings={setShowBuildings}
+            useMetricUnits={useMetricUnits}
           />
         )}
       </div>
@@ -2613,6 +2630,320 @@ function RoadsAnalytics({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Buildings Analytics Component  
+function BuildingsAnalytics({ 
+  buildingsMetrics, 
+  showBuildings, 
+  setShowBuildings,
+  useMetricUnits 
+}: {
+  buildingsMetrics: any;
+  showBuildings: boolean;
+  setShowBuildings: (show: boolean) => void;
+  useMetricUnits: boolean;
+}) {
+  // Early return if no data
+  if (!buildingsMetrics) {
+    return (
+      <div style={{ padding: "1rem", textAlign: "center", color: ginkgoTheme.colors.text.light }}>
+        <p>No building data available. Draw a polygon on the map to see building analysis.</p>
+      </div>
+    );
+  }
+
+  const formatArea = (sqm: number) => {
+    if (useMetricUnits) {
+      if (sqm >= 10000) {
+        return `${(sqm / 10000).toFixed(2)} ha`;
+      }
+      return `${sqm.toFixed(0)} m²`;
+    } else {
+      const sqft = sqm * 10.764;
+      if (sqft >= 43560) {
+        return `${(sqft / 43560).toFixed(2)} acres`;
+      }
+      return `${sqft.toFixed(0)} sq ft`;
+    }
+  };
+
+  const formatDensity = (densityPerHectare: number) => {
+    if (useMetricUnits) {
+      return `${densityPerHectare.toFixed(1)} per hectare`;
+    } else {
+      const densityPerAcre = densityPerHectare * 0.4047;
+      return `${densityPerAcre.toFixed(1)} per acre`;
+    }
+  };
+
+  return (
+    <div style={{ padding: "1rem" }}>
+      {/* Header */}
+      <div style={{ 
+        display: "flex", 
+        justifyContent: "space-between", 
+        alignItems: "center", 
+        marginBottom: "1.5rem" 
+      }}>
+        <h2 style={{ 
+          fontSize: "1.8rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          margin: 0
+        }}>
+          Building Footprint Analysis
+        </h2>
+        
+        {/* Visibility Toggle */}
+        <button
+          onClick={() => setShowBuildings(!showBuildings)}
+          style={{
+            padding: "8px 16px",
+            fontSize: "14px",
+            background: showBuildings ? ginkgoTheme.colors.primary.green : ginkgoTheme.colors.text.light,
+            color: showBuildings ? ginkgoTheme.colors.primary.navy : "white",
+            border: "none",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontWeight: 600,
+            transition: "all 0.2s ease"
+          }}
+        >
+          {showBuildings ? "Hide Buildings" : "Show Buildings"}
+        </button>
+      </div>
+
+      {/* Core Building Metrics */}
+      <div style={{ 
+        background: ginkgoTheme.colors.background.light,
+        padding: "1.5rem",
+        borderRadius: "8px",
+        marginBottom: "1.5rem"
+      }}>
+        <h3 style={{ 
+          fontSize: "1.2rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          marginBottom: "1.5rem" 
+        }}>
+          Built Coverage Summary
+        </h3>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Building Count</div>
+            <div style={{ 
+              fontSize: "24px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {buildingsMetrics.building_count?.toLocaleString() || 0}
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Total Footprint</div>
+            <div style={{ 
+              fontSize: "24px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {formatArea(buildingsMetrics.total_footprint_sqm || 0)}
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Coverage Ratio</div>
+            <div style={{ 
+              fontSize: "24px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {buildingsMetrics.coverage_percentage?.toFixed(1) || 0}%
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Building Density</div>
+            <div style={{ 
+              fontSize: "24px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {formatDensity(buildingsMetrics.building_density_per_hectare || 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Size Distribution */}
+      <div style={{ 
+        background: "white",
+        padding: "1.5rem",
+        borderRadius: "8px",
+        border: `1px solid ${ginkgoTheme.colors.secondary.lightGray}`,
+        marginBottom: "1.5rem"
+      }}>
+        <h3 style={{ 
+          fontSize: "1.2rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          marginBottom: "1.5rem" 
+        }}>
+          Building Size Distribution
+        </h3>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "1rem" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ 
+              fontSize: "20px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "4px"
+            }}>
+              {buildingsMetrics.small_buildings || 0}
+            </div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light
+            }}>Small (&lt; {useMetricUnits ? '50 m²' : '540 sq ft'})</div>
+          </div>
+          
+          <div style={{ textAlign: "center" }}>
+            <div style={{ 
+              fontSize: "20px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "4px"
+            }}>
+              {buildingsMetrics.medium_buildings || 0}
+            </div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light
+            }}>Medium ({useMetricUnits ? '50-200 m²' : '540-2,150 sq ft'})</div>
+          </div>
+          
+          <div style={{ textAlign: "center" }}>
+            <div style={{ 
+              fontSize: "20px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "4px"
+            }}>
+              {buildingsMetrics.large_buildings || 0}
+            </div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light
+            }}>Large ({useMetricUnits ? '200-1,000 m²' : '2.1K-10.8K sq ft'})</div>
+          </div>
+          
+          <div style={{ textAlign: "center" }}>
+            <div style={{ 
+              fontSize: "20px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "4px"
+            }}>
+              {buildingsMetrics.very_large_buildings || 0}
+            </div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light
+            }}>Very Large (&gt; {useMetricUnits ? '1,000 m²' : '10.8K sq ft'})</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Additional Details */}
+      <div style={{ 
+        background: ginkgoTheme.colors.background.light,
+        padding: "1.5rem",
+        borderRadius: "8px"
+      }}>
+        <h3 style={{ 
+          fontSize: "1.2rem", 
+          fontWeight: 600, 
+          color: ginkgoTheme.colors.primary.navy,
+          marginBottom: "1.5rem" 
+        }}>
+          Additional Metrics
+        </h3>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Average Building Size</div>
+            <div style={{ 
+              fontSize: "18px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {formatArea(buildingsMetrics.avg_footprint_sqm || 0)}
+            </div>
+          </div>
+          
+          <div>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>BID Area</div>
+            <div style={{ 
+              fontSize: "18px", 
+              fontWeight: "bold", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {buildingsMetrics.bid_area_acres?.toFixed(2) || 0} acres
+            </div>
+          </div>
+        </div>
+        
+        {buildingsMetrics.buildings_with_height > 0 && (
+          <div style={{ marginTop: "1rem", paddingTop: "1rem", borderTop: `1px solid ${ginkgoTheme.colors.secondary.lightGray}` }}>
+            <div style={{ 
+              fontSize: "12px", 
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "4px"
+            }}>Height Data Available</div>
+            <div style={{ 
+              fontSize: "14px", 
+              color: ginkgoTheme.colors.primary.navy
+            }}>
+              {buildingsMetrics.buildings_with_height} buildings ({((buildingsMetrics.buildings_with_height / buildingsMetrics.building_count) * 100).toFixed(0)}%)
+              {buildingsMetrics.avg_height_meters && (
+                <span> • Avg: {buildingsMetrics.avg_height_meters.toFixed(1)}m</span>
+              )}
+              {buildingsMetrics.avg_levels && (
+                <span> • {buildingsMetrics.avg_levels.toFixed(1)} levels</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

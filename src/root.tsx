@@ -62,6 +62,11 @@ export default function Root() {
   const [useMVTTiles, setUseMVTTiles] = useState(false);
   const [currentLayerType, setCurrentLayerType] = useState<'mvt' | 'geojson' | 'none'>('none');
   const [mvtEndpointAvailable, setMvtEndpointAvailable] = useState(false);
+  
+  // Buildings state
+  const [buildingsData, setBuildingsData] = useState<FeatureCollection | null>(null);
+  const [buildingsMetrics, setBuildingsMetrics] = useState<any>(null);
+  const [showBuildings, setShowBuildings] = useState(true);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -589,8 +594,9 @@ export default function Root() {
     setError(null);
     
     try {
-      // Fetch segments first, then places (so places render on top)
+      // Fetch segments first, then buildings, then places (so places render on top)
       await fetchSegments();
+      await fetchBuildings();
       await fetchPlaces();
     } catch (e: any) {
       setError(e.message);
@@ -731,6 +737,186 @@ export default function Root() {
     }
   }
 
+  async function fetchBuildings() {
+    if (!polygon) return;
+    try {
+      const buildingsTable = import.meta.env.VITE_BUILDINGS_TABLE || "ginkgo-map-data.overture_na.building_view";
+      
+      // Query with the correct column names from your table structure
+      const sql = `
+        SELECT 
+          building_id,
+          ST_AREA(geometry) AS footprint_area_sqm,
+          height,
+          level,
+          ST_ASGEOJSON(ST_SIMPLIFY(geometry, 1)) AS geom_json
+        FROM \`${buildingsTable}\`
+        WHERE ST_INTERSECTS(geometry, ST_GEOGFROMGEOJSON(@polygon_geojson))
+        ORDER BY ST_AREA(geometry) DESC
+        LIMIT 1000
+      `;
+
+      // Also get the BID area for coverage calculations
+      const bidAreaSql = `
+        SELECT ST_AREA(ST_GEOGFROMGEOJSON(@polygon_geojson)) AS bid_area_sqm
+      `;
+
+      // Fetch building data
+      const buildingsResponse = await fetch(import.meta.env.VITE_SQL_PROXY || "/api/sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q: sql,
+          params: {
+            polygon_geojson: JSON.stringify(polygon.features[0].geometry),
+          },
+        }),
+      });
+      
+      const buildingsData = await buildingsResponse.json();
+      console.log("Buildings API response:", buildingsData);
+      
+      if (!buildingsResponse.ok) {
+        throw new Error(buildingsData?.error || `Buildings query failed with status ${buildingsResponse.status}`);
+      }
+
+      // Fetch BID area
+      const areaResponse = await fetch(import.meta.env.VITE_SQL_PROXY || "/api/sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          q: bidAreaSql,
+          params: {
+            polygon_geojson: JSON.stringify(polygon.features[0].geometry),
+          },
+        }),
+      });
+      
+      const areaData = await areaResponse.json();
+      console.log("BID area response:", areaData);
+      
+      if (!areaResponse.ok) {
+        throw new Error(areaData?.error || `BID area query failed with status ${areaResponse.status}`);
+      }
+
+      const bidAreaSqm = areaData.rows?.[0]?.bid_area_sqm || 0;
+      
+      // Check if response is already GeoJSON format (auto-converted by SQL proxy)
+      let buildingRows = [];
+      let buildingsGeoJSON = null;
+      
+      if (buildingsData.geojson && buildingsData.geojson.features) {
+        // Response is already GeoJSON format
+        buildingsGeoJSON = buildingsData.geojson;
+        buildingRows = buildingsGeoJSON.features.map((feature: any) => ({
+          building_id: feature.properties.building_id,
+          footprint_area_sqm: feature.properties.footprint_area_sqm,
+          height: feature.properties.height,
+          level: feature.properties.level,
+          geom_json: JSON.stringify(feature.geometry)
+        }));
+      } else if (buildingsData.rows) {
+        // Response is in rows format
+        buildingRows = buildingsData.rows || [];
+      }
+      
+      console.log(`Found ${buildingRows.length} buildings in polygon`);
+      console.log("Sample building data:", buildingRows[0]);
+      
+      // Calculate metrics client-side
+      const buildingCount = buildingRows.length;
+      const totalFootprintSqm = buildingRows.reduce((sum: number, row: any) => sum + (row.footprint_area_sqm || 0), 0);
+      const avgFootprintSqm = buildingCount > 0 ? totalFootprintSqm / buildingCount : 0;
+      const coveragePercentage = bidAreaSqm > 0 ? (totalFootprintSqm / bidAreaSqm) * 100 : 0;
+      const bidAreaHectares = bidAreaSqm / 10000;
+      const buildingDensityPerHectare = bidAreaHectares > 0 ? buildingCount / bidAreaHectares : 0;
+
+      // Calculate size distribution
+      const sizeDistribution = buildingRows.reduce((dist: any, row: any) => {
+        const area = row.footprint_area_sqm || 0;
+        if (area < 50) dist.small_buildings++;
+        else if (area < 200) dist.medium_buildings++;
+        else if (area < 1000) dist.large_buildings++;
+        else dist.very_large_buildings++;
+        return dist;
+      }, { small_buildings: 0, medium_buildings: 0, large_buildings: 0, very_large_buildings: 0 });
+
+      // Calculate height statistics from direct columns
+      const buildingsWithHeight = buildingRows.filter((row: any) => row.height && row.height > 0).length;
+      const avgHeightMeters = buildingsWithHeight > 0 ? 
+        buildingRows.reduce((sum: number, row: any) => sum + (parseFloat(row.height) || 0), 0) / buildingsWithHeight : 0;
+
+      const buildingsWithLevels = buildingRows.filter((row: any) => row.level && row.level > 0).length;
+      const avgLevels = buildingsWithLevels > 0 ?
+        buildingRows.reduce((sum: number, row: any) => sum + (parseInt(row.level) || 0), 0) / buildingsWithLevels : 0;
+
+      // Create metrics object
+      const metrics = {
+        building_count: buildingCount,
+        total_footprint_sqm: totalFootprintSqm,
+        coverage_percentage: coveragePercentage,
+        building_density_per_hectare: buildingDensityPerHectare,
+        avg_footprint_sqm: avgFootprintSqm,
+        bid_area_sqm: bidAreaSqm,
+        bid_area_acres: bidAreaSqm / 4047,
+        ...sizeDistribution,
+        buildings_with_height: buildingsWithHeight,
+        avg_height_meters: avgHeightMeters,
+        buildings_with_levels: buildingsWithLevels,
+        avg_levels: avgLevels
+      };
+      
+      console.log("Calculated building metrics:", metrics);
+      setBuildingsMetrics(metrics);
+      
+      // Use existing GeoJSON or create from rows
+      let fc: FeatureCollection;
+      
+      if (buildingsGeoJSON) {
+        // Use the GeoJSON that came from the SQL proxy
+        fc = buildingsGeoJSON;
+        // Update properties to match our expected format
+        fc.features.forEach((feature: any) => {
+          feature.properties.name = 'Building';
+          feature.properties.area_sqm = feature.properties.footprint_area_sqm;
+          feature.properties.height_meters = feature.properties.height;
+          feature.properties.levels = feature.properties.level;
+          feature.properties.building_class = null;
+        });
+      } else {
+        // Convert from rows to GeoJSON
+        const features = buildingRows.map((row: any) => ({
+          type: "Feature",
+          properties: {
+            building_id: row.building_id,
+            name: 'Building',
+            area_sqm: row.footprint_area_sqm,
+            height_meters: row.height,
+            levels: row.level,
+            building_class: null
+          },
+          geometry: JSON.parse(row.geom_json),
+        }));
+
+        fc = {
+          type: "FeatureCollection",
+          features,
+        };
+      }
+
+      console.log("Created buildings GeoJSON with", fc.features.length, "features");
+      console.log("Sample feature:", fc.features[0]);
+      
+      setBuildingsData(fc);
+      addBuildingsLayer(fc);
+      
+      console.log("Added buildings layer to map");
+      
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
+
   function addSegmentsLayer(fc: FeatureCollection) {
     const map = mapRef.current!;
     
@@ -836,11 +1022,11 @@ export default function Root() {
             ["linear"],
             ["zoom"],
             6,
-            2,
+            1,   // Very small at low zoom
             10,
-            4,
+            2,   // Small at medium zoom  
             14,
-            6,
+            3,   // Still small at high zoom
           ],
           "circle-color": matchExp,
           "circle-opacity": 0.85,
@@ -853,6 +1039,96 @@ export default function Root() {
     }
   }
 
+  function addBuildingsLayer(fc: FeatureCollection) {
+    const map = mapRef.current!;
+    
+    if (!map.getSource("buildings")) {
+      map.addSource("buildings", { type: "geojson", data: fc });
+      
+      // Add building fill layer with light blue-gray color
+      map.addLayer({
+        id: "buildings-fill",
+        type: "fill",
+        source: "buildings",
+        paint: {
+          "fill-color": "#DFEBEF",
+          "fill-opacity": 0.9,
+        },
+      });
+      
+      // Add building outline layer with dark navy border
+      map.addLayer({
+        id: "buildings-outline",
+        type: "line",
+        source: "buildings", 
+        paint: {
+          "line-color": "#162E54",
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            12, 0,   // No border below zoom 13
+            13, 0.5, // Thin border at zoom 13+
+            16, 1    // Slightly thicker at higher zoom
+          ],
+          "line-opacity": [
+            "interpolate", 
+            ["linear"],
+            ["zoom"],
+            12, 0,   // No border below zoom 13
+            13, 0.8, // Visible border at zoom 13+
+            16, 1
+          ],
+        },
+      });
+      
+      // Add building labels (name/size info)
+      map.addLayer({
+        id: "buildings-labels",
+        type: "symbol",
+        source: "buildings",
+        layout: {
+          "text-field": ["concat", ["to-string", ["round", ["get", "area_sqm"]]], " m²"],
+          "text-font": ["Open Sans Regular"],
+          "text-size": [
+            "interpolate",
+            ["linear"], 
+            ["zoom"],
+            15, 8,
+            18, 10
+          ],
+          "text-offset": [0, -0.5],
+          "text-anchor": "center",
+          "text-allow-overlap": false,
+          "symbol-placement": "point"
+        },
+        paint: {
+          "text-color": "#858585",
+          "text-halo-color": "#FFFFFF", 
+          "text-halo-width": 1,
+          "text-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            14, 0,   // No labels below zoom 15
+            15, 0.8, // Fade in labels
+            18, 1
+          ]
+        },
+        minzoom: 15
+      });
+      
+      // Position buildings below places but above road segments
+      if (map.getLayer("places-circles")) {
+        map.moveLayer("buildings-fill", "places-circles");
+        map.moveLayer("buildings-outline", "places-circles"); 
+        map.moveLayer("buildings-labels", "places-circles");
+      }
+    } else {
+      (map.getSource("buildings") as mapboxgl.GeoJSONSource).setData(fc);
+    }
+  }
+
   function clearAll() {
     const map = mapRef.current!;
 
@@ -860,6 +1136,14 @@ export default function Root() {
     if (map.getSource("places")) {
       map.removeLayer("places-circles");
       map.removeSource("places");
+    }
+
+    // Clear buildings results
+    if (map.getSource("buildings")) {
+      map.removeLayer("buildings-fill");
+      map.removeLayer("buildings-outline");
+      map.removeLayer("buildings-labels");
+      map.removeSource("buildings");
     }
     
     // Clear all segment layers (both MVT and GeoJSON)
@@ -889,6 +1173,8 @@ export default function Root() {
     setPlaceCount(null);
     setSegmentsData(null);
     setSegmentCount(null);
+    setBuildingsData(null);
+    setBuildingsMetrics(null);
     setSelectedRoadClasses(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified']);
     setCurrentLayerType('none');
     setError(null);
@@ -1231,6 +1517,9 @@ export default function Root() {
           useMetricUnits={useMetricUnits}
           setUseMetricUnits={setUseMetricUnits}
           segmentsGeoJSON={segmentsGeoJSON}
+          buildingsMetrics={buildingsMetrics}
+          showBuildings={showBuildings}
+          setShowBuildings={setShowBuildings}
         />
       )}
     </div>
