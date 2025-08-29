@@ -40,6 +40,7 @@ interface EnhancedReportPanelProps {
   onApplyRoadFilters?: () => void;
   useMetricUnits?: boolean;
   setUseMetricUnits?: (metric: boolean) => void;
+  segmentsGeoJSON?: any; // Raw GeoJSON FeatureCollection for export
 }
 
 export function EnhancedReportPanel({
@@ -54,6 +55,7 @@ export function EnhancedReportPanel({
   onApplyRoadFilters = () => {},
   useMetricUnits = true,
   setUseMetricUnits = () => {},
+  segmentsGeoJSON = null,
 }: EnhancedReportPanelProps) {
   const [params, setParams] = useState<BudgetParameters>(DEFAULT_BUDGET_PARAMS);
   const [activeTab, setActiveTab] = useState<
@@ -418,6 +420,7 @@ export function EnhancedReportPanel({
             onApplyRoadFilters={onApplyRoadFilters}
             useMetricUnits={useMetricUnits}
             setUseMetricUnits={setUseMetricUnits}
+            segmentsGeoJSON={segmentsGeoJSON}
           />
         )}
       </div>
@@ -2113,6 +2116,65 @@ function CategoryPieChart({ data }: { data: any }) {
   );
 }
 
+// Export road data as GeoJSON
+function exportRoadData(segmentsData: any, segmentsGeoJSON: any, selectedRoadClasses: string[]) {
+  try {
+    if (!segmentsGeoJSON || !segmentsGeoJSON.features) {
+      alert("No segment data available for export. Please ensure road segments are loaded.");
+      return;
+    }
+
+    // Filter features based on selected road classes if any filters are applied
+    let filteredFeatures = segmentsGeoJSON.features;
+    if (selectedRoadClasses.length > 0 && selectedRoadClasses.length < 8) { // 8 is total road classes
+      filteredFeatures = segmentsGeoJSON.features.filter((feature: any) => 
+        selectedRoadClasses.includes(feature.properties.class)
+      );
+    }
+    
+    // Create GeoJSON structure with metadata
+    const geojson = {
+      type: "FeatureCollection",
+      features: filteredFeatures,
+      metadata: {
+        exportedAt: new Date().toISOString(),
+        totalSegments: filteredFeatures.length,
+        totalLengthMeters: segmentsData.totalLengthM,
+        totalLengthMiles: segmentsData.totalLengthMiles,
+        roadClassesIncluded: selectedRoadClasses.length > 0 ? selectedRoadClasses : "all",
+        exportedBy: "Ginkgo BID Budget Estimator",
+        note: "Road segments exported with current filter settings"
+      }
+    };
+    
+    // Create filename with timestamp and filter info
+    const timestamp = new Date().toISOString().split('T')[0];
+    const classCount = selectedRoadClasses.length > 0 ? selectedRoadClasses.length : 8;
+    const filename = `road_segments_${classCount}classes_${filteredFeatures.length}segments_${timestamp}.geojson`;
+    
+    // Create and download the file
+    const dataStr = JSON.stringify(geojson, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    
+    // Create download link
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    console.log("Successfully exported GeoJSON:", filename);
+    
+  } catch (error) {
+    console.error("Export failed:", error);
+    alert("Export failed. Please try again.");
+  }
+}
+
 // Roads Analytics Component
 function RoadsAnalytics({ 
   data, 
@@ -2120,7 +2182,8 @@ function RoadsAnalytics({
   setSelectedRoadClasses, 
   onApplyRoadFilters, 
   useMetricUnits, 
-  setUseMetricUnits 
+  setUseMetricUnits,
+  segmentsGeoJSON
 }: {
   data: any;
   selectedRoadClasses: string[];
@@ -2128,6 +2191,7 @@ function RoadsAnalytics({
   onApplyRoadFilters: () => void;
   useMetricUnits: boolean;
   setUseMetricUnits: (metric: boolean) => void;
+  segmentsGeoJSON: any;
 }) {
   return (
     <div style={{ padding: "1rem" }}>
@@ -2477,6 +2541,70 @@ function RoadsAnalytics({
                   );
                 })
               }
+            </div>
+          </div>
+          
+          {/* Export Section */}
+          <div style={{
+            marginTop: "2rem",
+            padding: "1.5rem",
+            background: ginkgoTheme.colors.background.light,
+            borderRadius: "8px",
+            borderTop: `3px solid ${ginkgoTheme.colors.primary.green}`
+          }}>
+            <h4 style={{ 
+              fontSize: "1rem", 
+              fontWeight: 600, 
+              color: ginkgoTheme.colors.primary.navy,
+              marginBottom: "1rem"
+            }}>
+              Export Road Data
+            </h4>
+            <p style={{
+              fontSize: "14px",
+              color: ginkgoTheme.colors.text.light,
+              marginBottom: "1rem",
+              lineHeight: "1.4"
+            }}>
+              Download the current road segments (with applied filters) as GeoJSON for use in GIS applications, QGIS, or further analysis.
+            </p>
+            
+            <button
+              onClick={() => exportRoadData(data.segments, segmentsGeoJSON, selectedRoadClasses)}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                fontSize: "16px",
+                background: ginkgoTheme.colors.primary.green,
+                color: ginkgoTheme.colors.primary.navy,
+                border: "none",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                transition: "all 0.3s ease",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px"
+              }}
+            >
+              Download Road Segments (GeoJSON)
+            </button>
+            
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px",
+              marginTop: "8px",
+              fontSize: "12px",
+              color: ginkgoTheme.colors.text.light
+            }}>
+              <div>
+                <strong>{data.segments.total}</strong> segments
+              </div>
+              <div>
+                <strong>{data.segments.classByClass.length}</strong> road types
+              </div>
             </div>
           </div>
         </div>

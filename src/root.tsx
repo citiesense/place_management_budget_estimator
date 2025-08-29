@@ -50,6 +50,7 @@ export default function Root() {
     'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified'
   ]);
   const [useMetricUnits, setUseMetricUnits] = useState(true);
+  const [segmentsGeoJSON, setSegmentsGeoJSON] = useState<any>(null);
 
   useEffect(() => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -437,6 +438,7 @@ export default function Root() {
       
       setSegmentsData(fc);
       setSegmentCount(totalSegments);
+      setSegmentsGeoJSON(fc); // Store for export functionality
       
       // Process enhanced metrics data if we have segments
       if (fc.features.length > 0) {
@@ -1144,6 +1146,7 @@ export default function Root() {
           }}
           useMetricUnits={useMetricUnits}
           setUseMetricUnits={setUseMetricUnits}
+          segmentsGeoJSON={segmentsGeoJSON}
         />
       )}
     </div>
