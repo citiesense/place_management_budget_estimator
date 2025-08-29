@@ -6,8 +6,7 @@ export default async (req, context) => {
     const body = await req.json()
 
     // TODO: plug into your email provider (Postmark/SES/etc.)
-    // For now, just log + return a success.
-    console.log('Report request:', JSON.stringify(body).slice(0, 2000))
+    // Report request received
 
     // Example: persist to Netlify Forms, Airtable, or your backend here.
 
@@ -16,7 +15,7 @@ export default async (req, context) => {
       headers: { 'Content-Type': 'application/json' }
     })
   } catch (e) {
-    console.error('report error', e)
+    // Error handling for report generation
     return new Response(`Report error: ${String(e)}`, { status: 500 })
   }
 }

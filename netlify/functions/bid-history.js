@@ -324,7 +324,7 @@ exports.handler = async (event, context) => {
     };
 
   } catch (error) {
-    console.error('Error fetching BID history:', error);
+    // Error fetching BID history
     
     return {
       statusCode: 500,
